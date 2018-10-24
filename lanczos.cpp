@@ -17,76 +17,6 @@ mt19937 rng(1235);
 uniform_real_distribution<double> unif(0.0,1.0);
 #define Nvec 512
 
-/*
-static void mergeAbs(double *sort1, int *idx1, int n1, double *sort2,
-		     int *idx2, int n2, bool inverse) {
-  int i1=0, i2=0;
-  int *ord;
-  double *result;
-    
-  ord    = (int *)    malloc(sizeof(int)   *(n1+n2)); 
-  result = (double *) malloc(sizeof(double)*(n1+n2)); 
-  
-  for(int i=0; i<(n1+n2); i++) {
-    if((fabs(sort1[i1]) >= fabs(sort2[i2])) != inverse) { //LOGICAL XOR
-      result[i] = sort1[i1];
-      ord[i] = idx1[i1];
-      i1++;
-    } else {
-      result[i] = sort2[i2];
-      ord[i] = idx2[i2];
-      i2++;
-    }
-    
-    if(i1 == n1) {
-      for(int j=i+1; j<(n1+n2); j++,i2++) {
-	result[j] = sort2[i2];
-	ord[j] = idx2[i2];
-      }
-      i = n1+n2;
-    } else if (i2 == n2) {
-      for(int j=i+1; j<(n1+n2); j++,i1++) {
-	result[j] = sort1[i1];
-	ord[j] = idx1[i1];
-      }
-      i = i1+i2;
-    }
-  }  
-  for(int i=0;i<n1;i++) {
-    idx1[i] = ord[i];
-    sort1[i] = result[i];
-  }
-    
-  for(int i=0;i<n2;i++) {
-    idx2[i] = ord[i+n1];
-    sort2[i] = result[i+n1];
-  }  
-  free (ord);
-  free (result);
-}
-
-static void sortAbs(double *unsorted, int n, bool inverse, int *idx) {
-
-  if (n <= 1)
-    return;
-    
-  int n1,n2;
-    
-  n1 = n>>1;
-  n2 = n-n1;
-    
-  double *unsort1 = unsorted;
-  double *unsort2 = (double *)((char*)unsorted + n1*sizeof(double));
-  int *idx1 = idx;
-  int *idx2 = (int *)((char*)idx + n1*sizeof(int));
-    
-  sortAbs(unsort1, n1, inverse, idx1);
-  sortAbs(unsort2, n2, inverse, idx2);
-    
-  mergeAbs(unsort1, idx1, n1, unsort2, idx2, n2, inverse);
-}
-*/
-
 //Simple Linear Algebra Helpers
 void zero(double *vec) {
   for(int i=0; i<Nvec; i++) vec[i] = 0.0;
@@ -195,6 +125,8 @@ int main(int argc, char **argv) {
   
   int nkv = atoi(argv[1]);
   int nev = atoi(argv[2]);
+  double diag = atof(argv[3]);
+
   int converged = 0;
   
   //double *mod_h_evals_sorted = (double*)malloc(nkv*sizeof(double));
@@ -211,7 +143,7 @@ int main(int argc, char **argv) {
   //Allocate space and populate
   for(int i=0; i<Nvec; i++) {
     mat[i] = (double*)malloc(Nvec*sizeof(double));
-    ref(i,i) += 40;
+    ref(i,i) += diag;
     mat[i][i] = ref(i,i);
     
     for(int j=0; j<i; j++) {

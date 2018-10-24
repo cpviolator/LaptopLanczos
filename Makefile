@@ -1,5 +1,5 @@
 #Your path to Eigen
-EIGEN=/Users/deanhowarth/lanczoz/Eigen/Eigen
+EIGEN=/Users/deanhowarth/lanczos/Eigen/Eigen
 
 TARGET	 = lanczos
 

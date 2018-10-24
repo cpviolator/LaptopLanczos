@@ -10,7 +10,7 @@ Point to it in the Makefile and the lanczos.cpp file, compile with
 
 Run the executable with
 
-    ./lanczos <NKV> <NEV>
+    ./lanczos NKV NEV
 
-where "<NKV>" is the size of the Kyrlov space, and "<NEV>" is the
+where NKV is the size of the Kyrlov space, and NEV is the
 desired number of eigenpairs wanted.

@@ -170,6 +170,7 @@ int main(int argc, char **argv) {
   t1 = clock();
   printf("START LANCZOS SOLUTION\n");
   bool converged = false;
+  int numConverged = 0;
   int j=0;
   while(!converged && j < nkv) {
     
@@ -178,7 +179,7 @@ int main(int argc, char **argv) {
     if((j+1)%check_interval == 0) {
       
       int j_check = j+1;
-      printf("Convergence Check at iter %d\n", j_check);
+      printf("Convergence Check at iter %04d gives ", j_check);
       
       for(int i=0; i<j_check; i++) copy(ritzVecs[i], krylovSpace[i]);
       copy(r_copy, r);
@@ -221,14 +222,19 @@ int main(int argc, char **argv) {
 	axpy(-h_evals[i], ritzVecs[i], r_copy);
 	h_evals_resid[i] =  sqrt(norm(r_copy));
 	
-	if(h_evals_resid[i] < tol) locked[i] = true;
-	
+	if(h_evals_resid[i] < tol) {
+	  locked[i] = true;
+	}
       }
-      
+
       //Halting check
       bool test = true;
-      for(int i=0; i<nev; i++)
+      numConverged = 0;
+      for(int i=0; i<nev; i++) {
 	if(locked[i] == false) test = false;	
+	else numConverged++;
+      }
+      printf("%04d converged eigenvalues.\n", numConverged);
       
       if(test == true) {
 	for(int i=0; i<nev; i++) {

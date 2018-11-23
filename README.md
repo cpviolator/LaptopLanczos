@@ -13,11 +13,17 @@ Run the executable with
      ./lanczos NKV NEV CHECK OFFSET TOL THREADS
 
 where:
+
 NKV is the size of the Kyrlov space.
+
 NEV is the desired number of eigenpairs.
+
 CHECK is the frequency with which to check for convergence.
+
 OFFSET is a constant added to the diagonal of the problem matrix to ensure positive eigenvalues.
+
 TOL is the tolernace.
+
 THREADS is the number of OMP threads
 
 To change the problem size,

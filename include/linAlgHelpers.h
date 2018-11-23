@@ -1,3 +1,6 @@
+#ifndef LINALGHELPERS_H
+#define LINALGHELPERS_H
+
 #include <omp.h>
 
 //Simple Linear Algebra Helpers
@@ -59,3 +62,4 @@ void matVec(double **mat, double *out, double *in) {
   }
 }
 
+#endif

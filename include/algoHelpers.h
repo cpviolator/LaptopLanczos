@@ -1,4 +1,6 @@
+
 #ifndef ALGOHELPERS_H
+
 #define ALGOHELPERS_H
 
 #include "linAlgHelpers.h"
@@ -47,7 +49,7 @@ void lanczosStep(double **mat, double **krylovSpace,
   
 }
 
-void computeRitz(double **ritzVecs, Eigen::MatrixXd eigenSolverTD, int nkv) {
+void computeRitz(double **ritzVecs, Eigen::MatrixXd mat, int nev, int nkv) {
   
   //loop over rows of V_k
   for(int j=0; j<Nvec; j++) {      
@@ -60,11 +62,11 @@ void computeRitz(double **ritzVecs, Eigen::MatrixXd eigenSolverTD, int nkv) {
 
     //take product of jth row of V_k and ith column of S (ith eigenvector of T_k) 
     double sum = 0.0;
-    for(int i=0; i<nkv; i++) {
+    for(int i=0; i<nev; i++) {
       
       //Loop over elements to get the y_i[j]th element 
       for(int l=0; l<nkv; l++) {
-	sum += tmp[l]*eigenSolverTD.col(i)[l];
+	sum += tmp[l]*mat.col(i)[l];
       }      
       //Update the Ritz vector
       ritzVecs[i][j] = sum;

@@ -5,7 +5,7 @@ INCLUDE=/Users/deanhowarth/lanczos/include
 TARGET	 = irm_lanczos
 SOURCES  = irm_lanczos.cpp 
 OBJS     = irm_lanczos.o 
-INC      = $(addprefix ${INCLUDE}/, linAlgHelpers.h algoHelpers.h)
+INC      = $(addprefix ${INCLUDE}/, linAlgHelpers.h algoHelpers.h utils.h)
 LIBS     = -L/usr/local/opt/libomp/lib -lomp
 
 ERRS=-Wall

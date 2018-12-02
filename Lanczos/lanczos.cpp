@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <omp.h>
 
-#define Nvec 1024
+#define Nvec 32
 #include "Eigen/Eigenvalues"
 #include "linAlgHelpers.h"
 #include "algoHelpers.h"
@@ -141,7 +141,7 @@ int main(int argc, char **argv) {
       //Perform Rayleigh-Ritz in-place matrix multiplication.
       //           y_i = V_k s_i
       // where T_k s_i = theta_i s_i  
-      computeRitz(ritzVecs, eigenSolverTD.eigenvectors(), j_check);
+      computeRitz(ritzVecs, eigenSolverTD.eigenvectors(), j_check, j_check);
     
       //Check for convergence    
       for(int i=0; i<j_check; i++) {

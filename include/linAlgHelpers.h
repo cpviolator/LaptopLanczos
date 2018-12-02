@@ -24,6 +24,14 @@ void axpy(double C, double *vec1, double *vec2) {
   for(int i=0; i<Nvec; i++) vec2[i] += C*vec1[i];
 }
 
+void axpby(double C, double *vec1, double D, double *vec2) {
+#pragma omp parallel for
+  for(int i=0; i<Nvec; i++) {
+    vec2[i] *= D;
+    vec2[i] += C*vec1[i];
+  }
+}
+
 double dotProd(double *vec2, double *vec1) {
   double prod = 0.0;
 #pragma omp parallel for reduction(+:prod) 
@@ -37,6 +45,14 @@ double norm(double *vec) {
   for(int i=0; i<Nvec; i++) sum += vec[i]*vec[i];
   return sum;
 }
+
+double normalise(double *vec) {
+  double sum = norm(vec);
+  ax(1.0/sqrt(sum), vec); 
+  return sum;
+}
+
+
 
 //Orthogonalise r against the j vectors in vectorSpace
 void orthogonalise(double *r, double **vectorSpace, int j) {

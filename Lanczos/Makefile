@@ -4,7 +4,7 @@ INCLUDE=/Users/deanhowarth/lanczos/include
 
 TARGET	 = lanczos 
 SOURCES  = lanczos.cpp 
-OBJS     = lanczos.o 
+OBJS     = lanczos.o
 INC      = $(addprefix ${INCLUDE}/, linAlgHelpers.h algoHelpers.h)
 LIBS     = -L/usr/local/opt/libomp/lib -lomp
 

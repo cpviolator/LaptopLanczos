@@ -2,9 +2,9 @@
 EIGEN=/Users/deanhowarth/LaptopLanczos/Eigen
 INCLUDE=/Users/deanhowarth/LaptopLanczos/include
 
-TARGET	 = irlm
-SOURCES  = irlm.cpp
-OBJS     = irlm.o 
+TARGET	 = trlm
+SOURCES  = trlm.cpp 
+OBJS     = trlm.o 
 INC      = $(addprefix ${INCLUDE}/, linAlgHelpers.h algoHelpers.h)
 LIBS     = -L/usr/local/opt/libomp/lib -lomp
 
@@ -19,11 +19,11 @@ CXXFLAGS+=${OMPFLAGS}
 
 all: $(TARGET)
 
-irlm: ${OBJS} 
-	$(CXX) $(CXXFLAGS) -o irlm $(OBJS) $(LIBS)
+trlm: ${OBJS} 
+	$(CXX) $(CXXFLAGS) -o trlm $(OBJS) $(LIBS)
 
-irlm.o: irlm.cpp ${INC}
-	${CXX} ${CXXFLAGS} -c irlm.cpp
+trlm.o: trlm.cpp ${INC}
+	${CXX} ${CXXFLAGS} -c trlm.cpp
 
 ALL_SOURCES = Makefile $(SOURCES) 
 

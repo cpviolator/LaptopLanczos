@@ -42,6 +42,28 @@ void lanczosStep(Complex **mat, std::vector<Complex*> kSpace,
 
 }
 
+void computeEvals(Complex **mat, std::vector<Complex*> kSpace, double *residua, Complex *evals, int nEv) {
+  
+  //temp vector
+  Complex *temp = (Complex*)malloc(Nvec*sizeof(Complex));
+  for (int i = 0; i < nEv; i++) {
+    // r = A * v_i
+    //zero(temp);
+    matVec(mat, temp, kSpace[i]);
+    
+    // lambda_i = v_i^dag A v_i / (v_i^dag * v_i)
+    evals[i] = cDotProd(kSpace[i], temp) / norm(kSpace[i]);
+        
+    // Measure ||lambda_i*v_i - A*v_i||
+    Complex n_unit(-1.0, 0.0);
+    caxpby(evals[i], kSpace[i], n_unit, temp);
+    residua[i] = norm(temp);
+  }
+  free(temp);
+}
+
+
+
 void computeRitz(std::vector<Complex*> ritzVecs, Eigen::MatrixXd mat, int nEv, int nKr) {
   
   //loop over rows of V_k

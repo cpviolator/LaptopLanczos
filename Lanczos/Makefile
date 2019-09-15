@@ -1,6 +1,6 @@
 #Your path to Eigen
-EIGEN=/Users/deanhowarth/lanczos/Eigen
-INCLUDE=/Users/deanhowarth/lanczos/include
+EIGEN=/Users/deanhowarth/LaptopLanczos/Eigen
+INCLUDE=/Users/deanhowarth/LaptopLanczos/include
 
 TARGET	 = lanczos 
 SOURCES  = lanczos.cpp 

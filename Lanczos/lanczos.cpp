@@ -1,130 +1,147 @@
 #include <vector>
 #include <iostream>
+#include <stdio.h>
 #include <fstream>
 #include <iomanip>
 #include <complex>
 #include <cmath>
 #include <vector>
 #include <cstring>
+#include <cfloat>
 #include <random>
 #include <unistd.h>
 #include <omp.h>
 
-#define Nvec 32
+#define Nvec 128
 #include "Eigen/Eigenvalues"
+using namespace std;
+using Eigen::MatrixXcd;
+using Eigen::MatrixXd;
+
+#define Complex complex<double>
 #include "linAlgHelpers.h"
 #include "algoHelpers.h"
 
-using namespace std;
-
-mt19937 rng(1235);
-uniform_real_distribution<double> unif(0.0,1.0);
 
 int main(int argc, char **argv) {
+
+  //Define the problem
+  if (argc < 7 || argc > 8) {
+    cout << "./lanczos <nKr> <nEv> <check-interval> <diag> <tol> <threads>" << endl;
+    exit(0);
+  }
   
-  int nkv = atoi(argv[1]);
-  int nev = atoi(argv[2]);
+  int nKr = atoi(argv[1]);
+  int nEv = atoi(argv[2]);
   int check_interval = atoi(argv[3]);
   double diag = atof(argv[4]);
   double tol = atof(argv[5]);
   int threads = atoi(argv[6]);
   omp_set_num_threads(threads);
   Eigen::setNbThreads(threads);
+
+  //Construct a matrix using Eigen.
+  //---------------------------------------------------------------------  
+  MatrixXcd ref = MatrixXcd::Random(Nvec, Nvec);
   
-  //double *mod_h_evals_sorted = (double*)malloc(nkv*sizeof(double));
-  double *h_evals_resid      = (double*)malloc(nkv*sizeof(double));
-  double *h_evals            = (double*)malloc(nkv*sizeof(double));
-  
-  //Construct and solve a matrix using Eigen, use as a trusted reference.
-  using Eigen::MatrixXd;
-  MatrixXd ref = MatrixXd::Random(Nvec, Nvec);
-  
-  //Problem matrix
-  double **mat = (double**)malloc(Nvec*sizeof(double*));  
-  //Allocate space and populate
+  //Copy Eigen ref matrix.
+  Complex **mat = (Complex**)malloc(Nvec*sizeof(Complex*));
   for(int i=0; i<Nvec; i++) {
-    mat[i] = (double*)malloc(Nvec*sizeof(double));
-    ref(i,i) += diag;
+    mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+    ref(i,i) = Complex(diag,0.0);
     mat[i][i] = ref(i,i);
     
     for(int j=0; j<i; j++) {
-      mat[i][j] = ref(i,j);
-      mat[j][i] = mat[i][j];
-      ref(j,i)  = ref(i,j);
+      mat[j][i] = ref(i,j);
+      mat[i][j] = conj(ref(i,j));
+      ref(j,i)  = conj(ref(i,j));
     }
   }
 
+  //Eigensolve the matrix using Eigen, use as a reference.
+  //---------------------------------------------------------------------  
   printf("START EIGEN SOLUTION\n");
   double t1 = clock();  
-  //Solve the problem matrix using Eigen, use as a reference.
-  Eigen::SelfAdjointEigenSolver<MatrixXd> eigenSolver(ref);
+  Eigen::SelfAdjointEigenSolver<MatrixXcd> eigenSolver(ref);
+  Eigen::SelfAdjointEigenSolver<MatrixXd> eigenSolverTD;
   double t2e = clock() - t1;
   printf("END EIGEN SOLUTION\n");
-  printf("Time to solve problem using Eigen   = %e\n", t2e/CLOCKS_PER_SEC);
-  
-  //Ritz vectors and Krylov Space
-  double **ritzVecs = (double**)malloc((1+nkv)*sizeof(double*));
-  double **krylovSpace = (double**)malloc((1+nkv)*sizeof(double*));  
-  for(int i=0; i<nkv+1; i++) {
-    ritzVecs[i] = (double*)malloc(Nvec*sizeof(double));
-    krylovSpace[i] = (double*)malloc(Nvec*sizeof(double));
-    zero(ritzVecs[i]);
-    zero(krylovSpace[i]);
+  printf("Time to solve problem using Eigen = %e\n", t2e/CLOCKS_PER_SEC);
+  //-----------------------------------------------------------------------
+
+  //Construct objects for Lanczos.
+  //---------------------------------------------------------------------
+  //Eigenvalues and their residuals
+  double *residua          = (double*)malloc(nKr*sizeof(double));
+  Complex *evals           = (Complex*)malloc(nKr*sizeof(Complex));
+  double *mod_evals_sorted = (double*)malloc(nKr*sizeof(double));
+  int *evals_sorted_idx    = (int*)malloc(nKr*sizeof(int));
+  for(int i=0; i<nKr; i++) {
+    residua[i]          = 0.0;
+    evals[i]            = 0.0;
+    mod_evals_sorted[i] = 0.0;
+    evals_sorted_idx[i] = 0;
   }
 
-  //Tracks if a Ritz vector is locked
-  bool *locked = (bool*)malloc((1+nkv)*sizeof(bool));
-  for(int i=0; i<nkv+1; i++) locked[i] = false;
-  
+  //Ritz vectors and Krylov Space. The eigenvectors will be stored here.
+  std::vector<Complex*> kSpace(nKr+1);
+  std::vector<Complex*> ritzVecs(nKr+1);
+  std::vector<bool> converged(nKr+1);
+  for(int i=0; i<nKr+1; i++) {
+    kSpace[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+    ritzVecs[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+    converged[i] = false;
+    zero(kSpace[i]);
+    zero(ritzVecs[i]);
+  }
+
   //Symmetric tridiagonal matrix
-  double alpha[nkv+1];
-  double  beta[nkv+1];
-  for(int i=0; i<nkv+1; i++) {
+  double alpha[nKr];
+  double  beta[nKr];
+  for(int i=0; i<nKr; i++) {
     alpha[i] = 0.0;
     beta[i] = 0.0;
   }  
 
-  //residual
-  double *r = (double*)malloc(Nvec*sizeof(double));
-  double *r_copy = (double*)malloc(Nvec*sizeof(double));
-  //Populate source with randoms.
+  //Residual vector. Also used as a temp vector
+  Complex *r = (Complex*)malloc(Nvec*sizeof(Complex));
+
+  printf("START LANCZOS SOLUTION\n");
+
+  bool convergence = false;
+  int num_converged = 0;
+  double mat_norm = 0;  
+  
+  // Populate source with randoms.
   printf("Using random guess\n");
   for(int i=0; i<Nvec; i++) r[i] = drand48();
-  //Ensure we are not trying to compute on a zero-field source
-  double nor = norm(r);
+
   //Normalise initial source
-  ax(1.0/sqrt(nor), r);
+  normalise(r);
+  
   //v_1
-  copy(krylovSpace[0], r);
+  copy(kSpace[0], r);
+
+  t1 = clock();
   
   // START LANCZOS
   // Lanczos Method for Symmetric Eigenvalue Problems
   //-------------------------------------------------
-
-  t1 = clock();
-  printf("START LANCZOS SOLUTION\n");
-  bool converged = false;
-  int numConverged = 0;
+  
   int j=0;
-  while(!converged && j < nkv) {
+  while(!convergence && j < nKr) {
     
-    lanczosStep(mat, krylovSpace, beta, alpha, r, j);  
+    lanczosStep(mat, kSpace, beta, alpha, r, -1, j);  
 
     if((j+1)%check_interval == 0) {
       
-      int j_check = j+1;
-      printf("Convergence Check at iter %04d gives ", j_check);
-      
-      for(int i=0; i<j_check; i++) copy(ritzVecs[i], krylovSpace[i]);
-      copy(r_copy, r);
-    
-      //Compute the Tridiagonal matrix T_k (k = nkv)
+      //Compute the Tridiagonal matrix T_k (k = nKr)
       using Eigen::MatrixXd;
-      MatrixXd triDiag = MatrixXd::Zero(j_check, j_check);
+      MatrixXd triDiag = MatrixXd::Zero(j+1, j+1);
       
-      for(int i=0; i<j_check; i++) {
+      for(int i=0; i<j+1; i++) {
 	triDiag(i,i) = alpha[i];      
-	if(i<j_check-1) {	
+	if(i<j) {	
 	  triDiag(i+1,i) = beta[i];	
 	  triDiag(i,i+1) = beta[i];
 	}
@@ -132,65 +149,47 @@ int main(int argc, char **argv) {
 
       //Eigensolve the T_k matrix
       Eigen::Tridiagonalization<MatrixXd> TD(triDiag);
-      Eigen::SelfAdjointEigenSolver<MatrixXd> eigenSolverTD;
       eigenSolverTD.computeFromTridiagonal(TD.diagonal(), TD.subDiagonal());
-      
-      //Ritz values are in ascending order if matrix is real.      
-      //std::cout << eigenSolverTD.eigenvalues() << std::endl;
-    
-      //Perform Rayleigh-Ritz in-place matrix multiplication.
-      //           y_i = V_k s_i
-      // where T_k s_i = theta_i s_i  
-      computeRitz(ritzVecs, eigenSolverTD.eigenvectors(), j_check, j_check);
-    
-      //Check for convergence    
-      for(int i=0; i<j_check; i++) {
-      
-	//r = A * v_i
-	matVec(mat, r_copy, ritzVecs[i]);
-      
-	//lambda_i = v_i^dag A v_i / (v_i^dag * v_i)
-	h_evals[i] = dotProd(ritzVecs[i], r_copy)/sqrt(norm(ritzVecs[i]));
-      
-	//Convergence check ||A * v_i - lambda_i * v_i||
-	axpy(-h_evals[i], ritzVecs[i], r_copy);
-	h_evals_resid[i] =  sqrt(norm(r_copy));
-	
-	if(h_evals_resid[i] < tol) {
-	  locked[i] = true;
-	}
+
+      // mat_norm and rediua are updated.
+      for (int i = 0; i < j+1; i++) {
+	if (fabs(alpha[i]) > mat_norm) mat_norm = fabs(alpha[i]);
+	residua[i] = fabs(beta[j] * eigenSolverTD.eigenvectors().col(i)[j]);
       }
 
       //Halting check
-      bool test = true;
-      numConverged = 0;
-      for(int i=0; i<nev; i++) {
-	if(locked[i] == false) test = false;	
-	else numConverged++;
-      }
-      printf("%04d converged eigenvalues.\n", numConverged);
-      
-      if(test == true) {
-	for(int i=0; i<nev; i++) {
-	  printf("EigValue[%04d]: EIGEN=%+.8e, LANCZOS=%+.8e, reldiff=%+.3e, compres=%+.3e, "
-		 "calcres=%+.3e, ||Evec||=%+.3e\n",
-		 i, eigenSolver.eigenvalues()[i], h_evals[i],
-		 1.0-eigenSolver.eigenvalues()[i]/h_evals[i],
-		 h_evals_resid[i],
-		 beta[j_check-1]*eigenSolverTD.eigenvectors().col(i)[j_check-1],
-		 sqrt(norm(ritzVecs[i])));
+      if (nEv <= j+1) {
+	num_converged = 0;
+	for(int i=0; i<nEv; i++) {
+	  if(residua[i] < tol * mat_norm) num_converged++;
 	}
-	converged = true;
+	
+	printf("%04d converged eigenvalues at iter %d\n", num_converged, j+1);
+	
+	if (num_converged >= nEv) convergence = true;
+	
       }
     }
     j++;
   }
-  if(!converged) {
-    printf("Lanczos failed to compute the requested %d vectors in %d steps. Please either increase nkv or decrease nev\n", nev, nkv);
-  }
   
   double t2l = clock() - t1;
-  printf("END LANCZOS SOLUTION\n");
-  printf("Time to solve problem using Eigen   = %e\n", t2e/CLOCKS_PER_SEC);
-  printf("Time to solve problem using Lanczos (%d OMP threads) = %e\n", threads, t2l/(CLOCKS_PER_SEC*threads));
+  
+  // Post computation report  
+  if (!convergence) {    
+    printf("lanczos failed to compute the requested %d vectors with a %d Krylov space\n", nEv, nKr);
+  } else {
+    printf("lanczos computed the requested %d vectors in %d steps in %e secs.\n", nEv, j, t2l/CLOCKS_PER_SEC);
+    
+    // Compute eigenvalues
+    computeRitz(kSpace, eigenSolverTD.eigenvectors(), j, j);
+    computeEvals(mat, kSpace, residua, evals, nEv);
+    for (int i = 0; i < nEv; i++) {
+      printf("EigValue[%04d]: (%+.16e, %+.16e) residual %.16e\n", i, evals[i].real(), evals[i].imag(), residua[i]);
+    }
+    
+    for (int i = 0; i < nEv; i++) {
+      printf("EigenComp[%04d]: %+.16e\n", i, (evals[i].real() - eigenSolver.eigenvalues()[i])/eigenSolver.eigenvalues()[i]); 
+    }
+  }
 }

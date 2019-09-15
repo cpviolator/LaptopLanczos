@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <omp.h>
 
-#define Nvec 2048
+#define Nvec 64
 #include "Eigen/Eigenvalues"
 using namespace std;
 using Eigen::MatrixXcd;
@@ -38,27 +38,6 @@ void reorder(std::vector<Complex*> kSpace, double *alpha, int nKr) {
     }
   }
 }
-
-void computeEvals(Complex **mat, std::vector<Complex*> kSpace, double *residua, Complex *evals, int nEv) {
-  
-  //temp vector
-  Complex *temp = (Complex*)malloc(Nvec*sizeof(Complex));
-  for (int i = 0; i < nEv; i++) {
-    // r = A * v_i
-    //zero(temp);
-    matVec(mat, temp, kSpace[i]);
-    
-    // lambda_i = v_i^dag A v_i / (v_i^dag * v_i)
-    evals[i] = cDotProd(kSpace[i], temp) / norm(kSpace[i]);
-        
-    // Measure ||lambda_i*v_i - A*v_i||
-    Complex n_unit(-1.0, 0.0);
-    caxpby(evals[i], kSpace[i], n_unit, temp);
-    residua[i] = norm(temp);
-  }
-  free(temp);
-}
-
 
 void computeKeptRitz(std::vector<Complex*> kSpace, int nKr, int num_locked, int iter_keep, double *beta) {
   
@@ -342,7 +321,7 @@ int main(int argc, char **argv) {
     //Array for eigenvalues
     Complex *evals = (Complex*)malloc(nEv*sizeof(Complex));
     // Compute eigenvalues
-    computeEvals(mat, kSpace, residua, evals, nEv);    
+    computeEvals(mat, kSpace, residua, evals, nEv);
     for (int i = 0; i < nEv; i++) {
       printf("EigValue[%04d]: (%+.16e, %+.16e) residual %.16e\n", i, evals[i].real(), evals[i].imag(),
 	     residua[i]);

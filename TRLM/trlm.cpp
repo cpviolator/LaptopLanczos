@@ -12,114 +12,24 @@
 #include <unistd.h>
 #include <omp.h>
 
-#define Nvec 64
+#define Nvec 2048
 #include "Eigen/Eigenvalues"
 using namespace std;
 using Eigen::MatrixXcd;
 using Eigen::MatrixXd;
 
+bool verbose = false;
+
 #define Complex complex<double>
 #include "linAlgHelpers.h"
 #include "algoHelpers.h"
-
-std::vector<double> ritz_mat;
-bool verbose = false;
-
-void reorder(std::vector<Complex*> kSpace, double *alpha, int nKr) {
-  int i = 0;
-  while (i < nKr) {
-    if ((i == 0) || (alpha[i - 1] <= alpha[i]))
-      i++;
-    else {
-      double tmp = alpha[i];
-      alpha[i] = alpha[i - 1];
-      alpha[--i] = tmp;
-      std::swap(kSpace[i], kSpace[i - 1]);
-    }
-  }
-}
-
-void computeKeptRitz(std::vector<Complex*> kSpace, int nKr, int num_locked, int iter_keep, double *beta) {
-  
-  int offset = nKr + 1;
-  int dim = nKr - num_locked;
-
-  if ((int)kSpace.size() < offset + iter_keep) {
-    for (int i = kSpace.size(); i < offset + iter_keep; i++) {
-      kSpace.push_back(new Complex[Nvec]);
-      zero(kSpace[i]);
-      if (verbose) printf("Adding %d vector to kSpace with norm %e\n", i, norm(kSpace[i]));
-    }
-  }
-  
-  //temp vector
-  Complex *temp = (Complex*)malloc(Nvec*sizeof(Complex));
-  
-  for (int i = 0; i < iter_keep; i++) {
-    int k = offset + i;
-    copy(temp, kSpace[num_locked]);
-    ax(ritz_mat[dim * i], temp);
-    copy(kSpace[k], temp);
-    
-    for (int j = 1; j < dim; j++) {
-      axpy(ritz_mat[i * dim + j], kSpace[num_locked + j], kSpace[k]);
-    }
-  }
-  
-  for (int i = 0; i < iter_keep; i++) copy(kSpace[i + num_locked], kSpace[offset + i]);
-  copy(kSpace[num_locked + iter_keep],kSpace[nKr]);  
-  for (int i = 0; i < iter_keep; i++) beta[i + num_locked] = beta[nKr - 1] * ritz_mat[dim * (i + 1) - 1];
-  
-  free(temp);
-}
-
-void eigensolveFromArrowMat(int num_locked, int arrow_pos, int nKr, double *alpha, double *beta, double *residua) {
-  int dim = nKr - num_locked;
-
-  // Eigen objects
-  MatrixXd A = MatrixXd::Zero(dim, dim);
-  ritz_mat.resize(dim * dim);
-  for (int i = 0; i < dim * dim; i++) ritz_mat[i] = 0.0;
-  
-  // Construct arrow mat A_{dim,dim}
-  for (int i = 0; i < dim; i++) {    
-    // alpha populates the diagonal
-    A(i,i) = alpha[i + num_locked];
-  }
-  
-  for (int i = 0; i < arrow_pos - 1; i++) {  
-    // beta populates the arrow
-    A(i, arrow_pos - 1) = beta[i + num_locked];
-    A(arrow_pos - 1, i) = beta[i + num_locked];
-  }
-  
-  for (int i = arrow_pos - 1; i < dim - 1; i++) {
-    // beta populates the sub-diagonal
-    A(i, i + 1) = beta[i + num_locked];
-    A(i + 1, i) = beta[i + num_locked];
-  }
-  
-  // Eigensolve the arrow matrix                                                                                                                                                
-  Eigen::SelfAdjointEigenSolver<MatrixXd> eigensolver;
-  eigensolver.compute(A);
-  
-  // repopulate ritz matrix
-  for (int i = 0; i < dim; i++)
-    for (int j = 0; j < dim; j++) ritz_mat[dim * i + j] = eigensolver.eigenvectors().col(i)[j];
-  
-  for (int i = 0; i < dim; i++) {
-    residua[i + num_locked] = fabs(beta[nKr - 1] * eigensolver.eigenvectors().col(i)[dim - 1]);
-    // Update the alpha array
-    alpha[i + num_locked] = eigensolver.eigenvalues()[i];
-    if (verbose) printf("EFAM: resid = %e, alpha = %e\n", residua[i + num_locked], alpha[i + num_locked]);
-  }
-}
 
 int main(int argc, char **argv) {
 
   //Define the problem
   if (argc < 7 || argc > 8) {
-    cout << "./trlm <nKr> <nEv> <max-restarts> <diag> <tol> <threads>" << endl;
+    cout << "Build for matrix size " << Nvec << endl;
+    cout << "./trlm <nKr> <nEv> <max-restarts> <diag> <tol> <max_keep>" << endl;
     exit(0);
   }
   
@@ -128,9 +38,7 @@ int main(int argc, char **argv) {
   int max_restarts = atoi(argv[3]);
   double diag = atof(argv[4]);
   double tol = atof(argv[5]);
-  int threads = atoi(argv[6]);
-  omp_set_num_threads(threads);
-  Eigen::setNbThreads(threads);
+  int max_keep = atoi(argv[6]);
 
   if (!(nKr > nEv + 6)) {
     printf("nKr=%d must be greater than nEv+6=%d\n", nKr, nEv + 6);
@@ -246,7 +154,7 @@ int main(int argc, char **argv) {
     // mat_norm is updated.
     for (int i = num_locked; i < nKr; i++) {
       if (verbose) printf("fabs(alpha[%d]) = %e  :  mat norm = %e\n", i, fabs(alpha[i]), mat_norm);
-      if (fabs(alpha[i]) > mat_norm/(1e6)) {
+      if (fabs(alpha[i]) > mat_norm) {
 	mat_norm = fabs(alpha[i]);
       }
     }
@@ -271,12 +179,13 @@ int main(int argc, char **argv) {
 	printf("**** Converged %d resid=%+.6e condition=%.6e ****\n", i, residua[i + num_locked], tol * mat_norm);
 	iter_converged = i;
       } else {
-	// Unlikely to find new converged pairs                                                                                                                                 
+	// Unlikely to find new converged pairs
 	break;
       }
     }
 
     iter_keep = std::min(iter_converged + (nKr - num_converged) / 2, nKr - num_locked - 12);
+    iter_keep = std::min(max_keep, iter_keep);
 
     computeKeptRitz(kSpace, nKr, num_locked, iter_keep, beta);
     

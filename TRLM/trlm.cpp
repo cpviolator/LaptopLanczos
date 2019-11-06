@@ -12,11 +12,12 @@
 #include <unistd.h>
 #include <omp.h>
 
-#define Nvec 2048
+#define Nvec 64
 #include "Eigen/Eigenvalues"
 using namespace std;
 using Eigen::MatrixXcd;
 using Eigen::MatrixXd;
+Eigen::SelfAdjointEigenSolver<MatrixXd> eigensolver;
 
 bool verbose = false;
 
@@ -27,9 +28,9 @@ bool verbose = false;
 int main(int argc, char **argv) {
 
   //Define the problem
-  if (argc < 7 || argc > 8) {
-    cout << "Build for matrix size " << Nvec << endl;
-    cout << "./trlm <nKr> <nEv> <max-restarts> <diag> <tol> <max_keep>" << endl;
+  if (argc < 11 || argc > 11) {
+    cout << "Built for matrix size " << Nvec << endl;
+    cout << "./trlm <nKr> <nEv> <max-restarts> <diag> <tol> <amin> <amax> <spectrum: 0=LR, 1=SR> <LU> <batch>" << endl;
     exit(0);
   }
   
@@ -38,41 +39,65 @@ int main(int argc, char **argv) {
   int max_restarts = atoi(argv[3]);
   double diag = atof(argv[4]);
   double tol = atof(argv[5]);
-  int max_keep = atoi(argv[6]);
-
+  double a_min = atof(argv[6]);
+  double a_max = atof(argv[7]);
+  bool reverse = (atoi(argv[8]) == 0 ? true : false);
+  bool LU = (atoi(argv[9]) == 1 ? true : false);
+  int batch_size = atoi(argv[10]);
+  
   if (!(nKr > nEv + 6)) {
     printf("nKr=%d must be greater than nEv+6=%d\n", nKr, nEv + 6);
     exit(0);
   }
+
+  printf("Mat size = %d\n", Nvec);
+  printf("nKr = %d\n", nKr);
+  printf("nEv = %d\n", nEv);
+  printf("Restarts = %d\n", max_restarts);
+  printf("diag = %e\n", diag);
+  printf("tol = %e\n", tol);
+  printf("reverse = %s\n", reverse == true ? "true" :  "false");
   
   //Construct a matrix using Eigen.
   //---------------------------------------------------------------------  
   MatrixXcd ref = MatrixXcd::Random(Nvec, Nvec);
+  MatrixXcd Diag = MatrixXcd::Zero(Nvec, Nvec);
   
-  //Copy Eigen ref matrix.
+  // Make ref Hermitian  
+  for(int i=0; i<Nvec; i++) {
+    Diag(i,i) = Complex(diag, 0.0);
+  }
+  
+  // Copy to mat
   Complex **mat = (Complex**)malloc(Nvec*sizeof(Complex*));
   for(int i=0; i<Nvec; i++) {
     mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
-    ref(i,i) = Complex(diag,0.0);
+    ref(i,i) = Complex(diag, 0.0);
     mat[i][i] = ref(i,i);
-    
     for(int j=0; j<i; j++) {
-      mat[j][i] = ref(i,j);
-      mat[i][j] = conj(ref(i,j));
-      ref(j,i)  = conj(ref(i,j));
+      mat[i][j] = ref(i,j);
+      ref(j,i) = conj(ref(i,j));
+      mat[j][i] = ref(j,i);
     }
   }
-
+  
   //Eigensolve the matrix using Eigen, use as a reference.
   //---------------------------------------------------------------------  
   printf("START EIGEN SOLUTION\n");
   double t1 = clock();  
-  Eigen::SelfAdjointEigenSolver<MatrixXcd> eigenSolver(ref);
+  Eigen::SelfAdjointEigenSolver<MatrixXcd> eigensolverRef(ref);
+  cout << eigensolverRef.eigenvalues() << endl;
   double t2e = clock() - t1;
   printf("END EIGEN SOLUTION\n");
   printf("Time to solve problem using Eigen = %e\n", t2e/CLOCKS_PER_SEC);
   //-----------------------------------------------------------------------
 
+  //a_min = eigensolverRef.eigenvalues()[nKr+16];
+  //a_max = eigensolverRef.eigenvalues()[Nvec-1]+1.0;
+
+  //double a_min = 35;
+  //double a_max = 150;
+  
   //Construct objects for Lanczos.
   //---------------------------------------------------------------------
   //Eigenvalues and their residuals
@@ -141,16 +166,16 @@ int main(int argc, char **argv) {
   while(restart_iter < max_restarts && !converged) {
     
     // (2) p = m-k steps to get to the m-step factorisation
-    for (int step = num_keep; step < nKr; step++) lanczosStep(mat, kSpace, beta, alpha, r, num_keep, step);
+    for (int step = num_keep; step < nKr; step++) lanczosStep(mat, kSpace, beta, alpha, r, num_keep, step, a_min, a_max);
     iter += (nKr - num_keep);
-
+    
     printf("Restart %d complete\n", restart_iter+1);
     
     int arrow_pos = std::max(num_keep - num_locked + 1, 2);
 
     // The eigenvalues are returned in the alpha array
-    eigensolveFromArrowMat(num_locked, arrow_pos, nKr, alpha, beta, residua);
-
+    eigensolveFromArrowMat(num_locked, arrow_pos, nKr, alpha, beta, residua, reverse);
+    
     // mat_norm is updated.
     for (int i = num_locked; i < nKr; i++) {
       if (verbose) printf("fabs(alpha[%d]) = %e  :  mat norm = %e\n", i, fabs(alpha[i]), mat_norm);
@@ -163,8 +188,7 @@ int main(int argc, char **argv) {
     iter_locked = 0;
     for (int i = 1; i < (nKr - num_locked); i++) {
       if (residua[i + num_locked] < epsilon * mat_norm) {
-	printf("**** Locking %d resid=%+.6e condition=%.6e ****\n", i, residua[i + num_locked],
-	       epsilon * mat_norm);
+	printf("**** Locking %d resid=%+.6e condition=%.6e ****\n", i, residua[i + num_locked], epsilon * mat_norm);
 	iter_locked = i;
       } else {
 	// Unlikely to find new locked pairs
@@ -185,9 +209,10 @@ int main(int argc, char **argv) {
     }
 
     iter_keep = std::min(iter_converged + (nKr - num_converged) / 2, nKr - num_locked - 12);
-    iter_keep = std::min(max_keep, iter_keep);
+    //iter_keep = std::min(max_keep, iter_keep);
 
-    computeKeptRitz(kSpace, nKr, num_locked, iter_keep, beta);
+    if(LU) computeKeptRitz(kSpace, nKr, num_locked, iter_keep, beta);
+    else computeKeptRitzLU(kSpace, nKr, num_locked, iter_keep, batch_size, beta, iter);
     
     num_converged = num_locked + iter_converged;
     num_keep = num_locked + iter_keep;
@@ -203,7 +228,7 @@ int main(int argc, char **argv) {
      
     // Check for convergence
     if (num_converged >= nEv) {
-      reorder(kSpace, alpha, nKr);
+      reorder(kSpace, alpha, nKr, reverse);
       converged = true;
     }
     
@@ -227,17 +252,19 @@ int main(int argc, char **argv) {
       printf("RitzValue[%04d]: (%+.16e, %+.16e) residual %.16e\n", i, alpha[i], 0.0, residua[i]);
     }
     
-    //Array for eigenvalues
-    Complex *evals = (Complex*)malloc(nEv*sizeof(Complex));
     // Compute eigenvalues
-    computeEvals(mat, kSpace, residua, evals, nEv);
+    computeEvals(mat, kSpace, residua, evals, nKr);
+    for (int i = 0; i < nKr; i++) alpha[i] = evals[i].real();
+    //reorder(kSpace, alpha, nEv, reverse);
     for (int i = 0; i < nEv; i++) {
       printf("EigValue[%04d]: (%+.16e, %+.16e) residual %.16e\n", i, evals[i].real(), evals[i].imag(),
 	     residua[i]);
     }
 
     for (int i = 0; i < nEv; i++) {
-      printf("EigenComp[%04d]: %+.16e\n", i, (evals[i].real() - eigenSolver.eigenvalues()[i])/eigenSolver.eigenvalues()[i]);
+      //int idx = reverse ? (Nvec-1) - i : i;      
+      int idx = i;
+      printf("EigenComp[%04d]: %+.16e\n", i, (evals[i].real() - eigensolverRef.eigenvalues()[idx])/eigensolverRef.eigenvalues()[idx]);
     }
     free(evals);
   }

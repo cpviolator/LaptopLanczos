@@ -112,4 +112,61 @@ void matVec(Complex **mat, Complex *out, Complex *in) {
   //}
 }
 
+void chebyOp(Complex **mat, Complex *out, Complex *in, double a, double b) {
+  
+  // Compute the polynomial accelerated operator.
+  //double a = 15;
+  //double b = 25;
+  double delta = (b - a) / 2.0;
+  double theta = (b + a) / 2.0;
+  double sigma1 = -delta / theta;
+  double sigma;
+  double d1 = sigma1 / delta;
+  double d2 = 1.0;
+  double d3;
+
+  // out = d2 * in + d1 * out
+  // C_1(x) = x
+  matVec(mat, out, in);
+  caxpby(d2, in, d1, out);
+  
+  Complex tmp1[Nvec];
+  Complex tmp2[Nvec];
+  Complex tmp3[Nvec];
+  
+  copy(tmp1, in);
+  copy(tmp2, out);
+  
+  // Using Chebyshev polynomial recursion relation,
+  // C_{m+1}(x) = 2*x*C_{m} - C_{m-1}
+  
+  double sigma_old = sigma1;
+  
+  // construct C_{m+1}(x)
+  for (int i = 2; i < 10; i++) {
+    sigma = 1.0 / (2.0 / sigma1 - sigma_old);
+      
+    d1 = 2.0 * sigma / delta;
+    d2 = -d1 * theta;
+    d3 = -sigma * sigma_old;
+
+    // mat*C_{m}(x)
+    matVec(mat, out, tmp2);
+
+    Complex d1c(d1, 0.0);
+    Complex d2c(d2, 0.0);
+    Complex d3c(d3, 0.0);
+
+    copy(tmp3, tmp2);
+    
+    caxpby(d3c, tmp1, d2c, tmp3);
+    caxpy(d1c, out, tmp3);
+    copy(tmp2, tmp3);
+    
+    sigma_old = sigma;
+  }
+  copy(out, tmp2);
+}
+
+
 #endif

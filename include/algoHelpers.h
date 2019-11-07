@@ -5,10 +5,6 @@
 
 std::vector<double> ritz_mat;
 
-//Functions used in the lanczos algorithm
-//---------------------------------------
-
-//The Engine
 void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
 		 double *beta, double *alpha,
 		 Complex *r, int num_keep, int j, double a_min, double a_max) {
@@ -33,7 +29,7 @@ void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
 
   // Orthogonalise r against the K space
   if (j > 0)
-    for (int k = 0; k < 10; k++) orthogonalise(r, kSpace, j);
+    for (int k = 0; k < 2; k++) orthogonalise(r, kSpace, j);
 
   //b_j = ||r|| 
   beta[j] = normalise(r);
@@ -41,6 +37,32 @@ void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
   //Prepare next step.
   copy(kSpace[j+1], r);
 }
+
+void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
+		 std::vector<Complex*> &upperHess,
+		 Complex *r, int j) {
+
+  matVec(mat, r, kSpace[j]);
+
+  for (int i = 0; i < j+1; i++) {
+    //H_{j,i}_j = v_i^dag * r
+    upperHess[i][j] = cDotProd(kSpace[i], r);
+    //r = r - v_j * H_{j,i}
+    caxpy(-1.0*upperHess[i][j], kSpace[i], r);
+  }
+  
+  if(j < (int)kSpace.size() - 1) {
+    upperHess[j+1][j].real(normalise(r));
+  }
+    
+  // Orthogonalise r against the K space
+  //if (j > 0)
+  //for (int k = 0; k < 2; k++) orthogonalise(r, kSpace, j);
+  
+  //Prepare next step.
+  copy(kSpace[j+1], r);
+}
+
 
 void reorder(std::vector<Complex*> &kSpace, double *alpha, int nKr, bool reverse) {
   int i = 0;
@@ -111,29 +133,82 @@ void eigensolveFromArrowMat(int num_locked, int arrow_pos, int nKr, double *alph
   }
   
   // Eigensolve the arrow matrix 
-  Eigen::SelfAdjointEigenSolver<MatrixXd> eigenSolver;
-  eigenSolver.compute(A);
+  //Eigen::SelfAdjointEigenSolver<MatrixXd> eigenSolver;
+  eigensolver.compute(A);
   
   // repopulate ritz matrix
   for (int i = 0; i < dim; i++) {
     for (int j = 0; j < dim; j++) {
       //Place data in COLUMN major 
-      ritz_mat[dim * i + j] = eigenSolver.eigenvectors().col(i)[j];
+      ritz_mat[dim * i + j] = eigensolver.eigenvectors().col(i)[j];
       //printf("%+.4e ",ritz_mat[dim * i + j]);      
     }
     //printf("\n");
   }
   
   for (int i = 0; i < dim; i++) {
-    residua[i + num_locked] = fabs(beta[nKr - 1] * eigenSolver.eigenvectors().col(i)[dim - 1]);
+    residua[i + num_locked] = fabs(beta[nKr - 1] * eigensolver.eigenvectors().col(i)[dim - 1]);
     // Update the alpha array
-    alpha[i + num_locked] = eigenSolver.eigenvalues()[i];
+    alpha[i + num_locked] = eigensolver.eigenvalues()[i];
     if (verbose) printf("EFAM: resid = %e, alpha = %e\n", residua[i + num_locked], alpha[i + num_locked]);
   }
 
   // Put spectrum back in order
   if (reverse) {
     for (int i = num_locked; i < nKr; i++) { alpha[i] *= -1.0; }
+  }  
+}
+
+
+void eigensolveFromTriDiag(int dim, double *alpha, double *beta, double *residua, bool reverse) {
+  
+  // Eigen objects
+  MatrixXd A = MatrixXd::Zero(dim, dim);
+  ritz_mat.resize(dim * dim);
+  for (int i = 0; i < dim * dim; i++) ritz_mat[i] = 0.0;
+
+  // Optionally invert the spectrum
+  if (reverse) {
+    for (int i = 0; i < dim-1; i++) {
+      alpha[i] *= -1.0;
+      beta[i] *= -1.0;
+    }
+    alpha[dim - 1] *= -1.0;
+  }
+  
+  // Construct arrow mat A_{dim,dim}
+  for (int i = 0; i < dim; i++) {    
+    // alpha populates the diagonal
+    A(i,i) = alpha[i];
+  }
+  
+  for (int i = 0; i < dim - 1; i++) {
+    // beta populates the sub-diagonal
+    A(i, i + 1) = beta[i];
+    A(i + 1, i) = beta[i];
+  }
+  
+  // Eigensolve the arrow matrix 
+  eigensolver.compute(A);
+  
+  // repopulate ritz matrix
+  for (int i = 0; i < dim; i++) {
+    for (int j = 0; j < dim; j++) {
+      //Place data in COLUMN major 
+      ritz_mat[dim * i + j] = eigensolver.eigenvectors().col(i)[j];
+    }
+  }
+  
+  for (int i = 0; i < dim; i++) {
+    residua[i] = fabs(beta[dim-1] * eigensolver.eigenvectors().col(i)[dim - 1]);
+    // Update the alpha array
+    alpha[i] = eigensolver.eigenvalues()[i];
+    if (verbose) printf("EFAM: resid = %e, alpha = %e\n", residua[i], alpha[i]);
+  }
+
+  // Put spectrum back in order
+  if (reverse) {
+    for (int i = 0; i < dim; i++) { alpha[i] *= -1.0; }
   }  
 }
 
@@ -155,8 +230,35 @@ void computeEvals(Complex **mat, std::vector<Complex*> &kSpace, double *residua,
   }
 }
 
-void rotateVecs(std::vector<Complex*> &vecs, Eigen::MatrixXd mat, int num_locked, int iter_keep, int dim) {
+void rotateVecsReal(std::vector<Complex*> &vecs, Eigen::MatrixXd mat, int num_locked, int iter_keep, int dim) {
+  
+  //loop over rows of V_k
+  for(int j=0; j<Nvec; j++) {    
+    
+    //put jth row of V_k in temp
+    Complex tmp[dim];  
+    for(int i=0; i<dim; i++) {
+      tmp[i] = vecs[i+num_locked][j];      
+    }
 
+    //take product of jth row of V_k and ith column of mat (ith eigenvector of T_k) 
+    Complex sum = 0.0;
+    for(int i=0; i<iter_keep; i++) {
+      
+      //Loop over elements to get the y_i[j]th element 
+      for(int l=0; l<dim; l++) {
+	sum += tmp[l]*mat.col(i)[l];
+      }
+      
+      //Update the Ritz vector
+      vecs[i+num_locked][j] = sum;
+      sum = 0.0;
+    }
+  }
+}
+
+void rotateVecsComplex(std::vector<Complex*> &vecs, Eigen::MatrixXcd mat, int num_locked, int iter_keep, int dim) {
+  
   //loop over rows of V_k
   for(int j=0; j<Nvec; j++) {    
     
@@ -189,7 +291,7 @@ void computeKeptRitz(std::vector<Complex*> &kSpace, int nKr, int num_locked, int
   for (int j = 0; j < iter_keep; j++) 
     for (int i = 0; i < dim; i++) 
       mat(i,j) = ritz_mat[j*dim + i];  
-  rotateVecs(kSpace, mat, num_locked, iter_keep, dim); 
+  rotateVecsReal(kSpace, mat, num_locked, iter_keep, dim); 
   
   //Update beta and residual
   copy(kSpace[num_locked + iter_keep], kSpace[nKr]);
@@ -285,7 +387,6 @@ void computeKeptRitzLU(std::vector<Complex*> &kSpace, int nKr, int num_locked, i
   MatrixXd matLower = MatrixXd::Identity(dim,dim);
   matLower.block(0,0,dim,iter_keep).triangularView<Eigen::StrictlyLower>() = matLU.matrixLU();
 
-  //rotateVecs(kSpace, matLU.permutationP().inverse(), num_locked, dim, dim);
   permuteVecs(kSpace, matLU.permutationP().inverse(), num_locked, dim);    
   
   // Defines the column element (row index)
@@ -429,7 +530,6 @@ void computeKeptRitzLU(std::vector<Complex*> &kSpace, int nKr, int num_locked, i
   }
 
   permuteVecs(kSpace, matLU.permutationQ().inverse(), num_locked, iter_keep);
-  //rotateVecs(kSpace, matLU.permutationQ().inverse(), num_locked, iter_keep, iter_keep);  
 
   //Update residual
   copy(kSpace[num_locked + iter_keep], kSpace[nKr]);

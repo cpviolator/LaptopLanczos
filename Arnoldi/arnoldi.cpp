@@ -12,34 +12,34 @@
 #include <unistd.h>
 #include <omp.h>
 
-#define Nvec 128
+#define Nvec 64
 #include "Eigen/Eigenvalues"
 using namespace std;
 using Eigen::MatrixXcd;
 using Eigen::MatrixXd;
 
 Eigen::SelfAdjointEigenSolver<MatrixXd> eigensolver;
+#define Complex complex<double>
+
 bool verbose = false;
 
-#define Complex complex<double>
 #include "linAlgHelpers.h"
 #include "algoHelpers.h"
 
 int main(int argc, char **argv) {
 
   //Define the problem
-  if (argc < 7 || argc > 8) {
-    cout << "Compiled for Nvec = " << Nvec << endl;
-    cout << "./lanczos <nKr> <nEv> <check-interval> <diag> <tol> <threads>" << endl;
+  if (argc < 6 || argc > 6) {
+    cout << "Compiled for " << Nvec << endl;
+    cout << "./arnoldi <nKr> <nEv> <check-interval> <tol> <threads>" << endl;
     exit(0);
   }
   
   int nKr = atoi(argv[1]);
   int nEv = atoi(argv[2]);
   int check_interval = atoi(argv[3]);
-  double diag = atof(argv[4]);
-  double tol = atof(argv[5]);
-  int threads = atoi(argv[6]);
+  double tol = atof(argv[4]);
+  int threads = atoi(argv[5]);
   omp_set_num_threads(threads);
   Eigen::setNbThreads(threads);
 
@@ -51,25 +51,21 @@ int main(int argc, char **argv) {
   Complex **mat = (Complex**)malloc(Nvec*sizeof(Complex*));
   for(int i=0; i<Nvec; i++) {
     mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
-    ref(i,i) = Complex(diag,0.0);
-    mat[i][i] = ref(i,i);
-    
-    for(int j=0; j<i; j++) {
-      mat[j][i] = ref(i,j);
-      mat[i][j] = conj(ref(i,j));
-      ref(j,i)  = conj(ref(i,j));
+    for(int j=0; j<Nvec; j++) {
+      mat[i][j] = ref(i,j);
     }
   }
-
+    
   //Eigensolve the matrix using Eigen, use as a reference.
   //---------------------------------------------------------------------  
   printf("START EIGEN SOLUTION\n");
   double t1 = clock();  
-  Eigen::SelfAdjointEigenSolver<MatrixXcd> eigenSolver(ref);
-  Eigen::SelfAdjointEigenSolver<MatrixXd> eigenSolverTD;
+  Eigen::ComplexEigenSolver<MatrixXcd> eigenSolver(ref);
+  Eigen::ComplexEigenSolver<MatrixXcd> eigenSolverUH;
   double t2e = clock() - t1;
   printf("END EIGEN SOLUTION\n");
   printf("Time to solve problem using Eigen = %e\n", t2e/CLOCKS_PER_SEC);
+  //cout << eigenSolver.eigenvalues() << endl;
   //-----------------------------------------------------------------------
 
   //Construct objects for Lanczos.
@@ -88,23 +84,27 @@ int main(int argc, char **argv) {
 
   //Ritz vectors and Krylov Space. The eigenvectors will be stored here.
   std::vector<Complex*> kSpace(nKr+1);
+  std::vector<Complex*> ritzVecs(nKr+1);
+  std::vector<bool> converged(nKr+1);
   for(int i=0; i<nKr+1; i++) {
     kSpace[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+    ritzVecs[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+    converged[i] = false;
     zero(kSpace[i]);
+    zero(ritzVecs[i]);
   }
 
-  //Symmetric tridiagonal matrix
-  double alpha[nKr];
-  double  beta[nKr];
-  for(int i=0; i<nKr; i++) {
-    alpha[i] = 0.0;
-    beta[i] = 0.0;
-  }  
-
+  //Upper Hessenberg matrix
+  std::vector<Complex*> upperHess(nKr+1);
+  for(int i=0; i<nKr+1; i++) {
+    upperHess[i] = (Complex*)malloc((nKr+1)*sizeof(Complex));
+    for(int j=0; j<nKr+1; j++) upperHess[i][j] = 0.0;
+  }
+  
   //Residual vector. Also used as a temp vector
   Complex *r = (Complex*)malloc(Nvec*sizeof(Complex));
 
-  printf("START LANCZOS SOLUTION\n");
+  printf("START ARNOLDI SOLUTION\n");
 
   bool convergence = false;
   int num_converged = 0;
@@ -122,87 +122,79 @@ int main(int argc, char **argv) {
 
   t1 = clock();
   
-  // START LANCZOS
-  // Lanczos Method for Symmetric Eigenvalue Problems
+  // START ARNOLDI
+  // ARNOLDI Method for Complex Eigenvalue Problems
   //-------------------------------------------------
   
   int j=0;
   while(!convergence && j < nKr) {
     
-    lanczosStep(mat, kSpace, beta, alpha, r, -1, j, 1, 1);  
-
+    arnoldiStep(mat, kSpace, upperHess, r, j);
+    
     if((j+1)%check_interval == 0) {
-
-      //Compute the Tridiagonal matrix T_k (k = nKr)
-      using Eigen::MatrixXd;
-      MatrixXd triDiag = MatrixXd::Zero(j+1, j+1);
       
-      for(int i=0; i<j+1; i++) {
-	triDiag(i,i) = alpha[i];      
-	if(i<j) {	
-	  triDiag(i+1,i) = beta[i];	
-	  triDiag(i,i+1) = beta[i];
+      //Construct the Upper Hessenberg matrix H_k      
+      MatrixXcd upperHessEigen = MatrixXcd::Zero(j+1, j+1);      
+      for(int k=0; k<j+1; k++) {
+	for(int i=0; i<j+1; i++) {
+	  upperHessEigen(k,i) = upperHess[k][i];
 	}
       }
 
-      //Eigensolve the T_k matrix
-      Eigen::Tridiagonalization<MatrixXd> TD(triDiag);
-      eigenSolverTD.computeFromTridiagonal(TD.diagonal(), TD.subDiagonal());
-
+      // Eigensolve dense UH
+      eigenSolverUH.compute(upperHessEigen);      
+      
       // mat_norm and rediua are updated.
       for (int i = 0; i < j+1; i++) {
-	if (fabs(alpha[i]) > mat_norm) mat_norm = fabs(alpha[i]);
-	residua[i] = fabs(beta[j] * eigenSolverTD.eigenvectors().col(i)[j]);
+	mat_norm = upperHessEigen.norm();
+	residua[i] = abs(upperHess[j+1][j] * eigenSolverUH.eigenvectors().col(i)[j]);
       }
-      
       
       //Halting check
       if (nEv <= j+1) {
 	num_converged = 0;
-	for(int i=0; i<nEv; i++) {
+	for(int i=0; i<j+1; i++) {
 	  if(residua[i] < tol * mat_norm) num_converged++;
 	}	
-	printf("%04d converged eigenvalues at iter %d\n", num_converged, j+1);	
-	if (num_converged >= nEv) convergence = true;
 	
-      }
+	printf("%04d converged eigenvalues at iter %d\n", num_converged, j+1);
+	
+	if (num_converged >= nEv) convergence = true;	
+      }            
     }
     j++;
   }
-  
+    
   double t2l = clock() - t1;
   
   // Post computation report  
   if (!convergence) {    
-    printf("lanczos failed to compute the requested %d vectors with a %d Krylov space\n", nEv, nKr);
+    printf("Arnoldi failed to compute the requested %d vectors with a %d Krylov space\n", nEv, nKr);
   } else {
-    printf("lanczos computed the requested %d vectors in %d steps in %e secs.\n", nEv, j, t2l/CLOCKS_PER_SEC);
+    printf("Arnoldi computed the requested %d vectors in %d steps in %e secs.\n", nEv, j, t2l/CLOCKS_PER_SEC);
 
-    //Compute the Tridiagonal matrix
-    using Eigen::MatrixXd;
-    MatrixXd triDiag = MatrixXd::Zero(j, j);
-    
-    for(int i=0; i<j; i++) {
-      triDiag(i,i) = alpha[i];      
-      if(i<j-1) {	
-	triDiag(i+1,i) = beta[i];	
-	triDiag(i,i+1) = beta[i];
+    //Construct the Upper Hessenberg matrix H_k      
+    MatrixXcd upperHessEigen = MatrixXcd::Zero(j, j);      
+    for(int k=0; k<j; k++) {
+      for(int i=0; i<j; i++) {
+	upperHessEigen(k,i) = upperHess[k][i];
       }
-    }
+    }  
+    // Eigensolve dense UH
+    eigenSolverUH.compute(upperHessEigen);
 
-    //Eigensolve the T_k matrix
-    Eigen::Tridiagonalization<MatrixXd> TD(triDiag);
-    eigenSolverTD.computeFromTridiagonal(TD.diagonal(), TD.subDiagonal());
-    
-    // Compute eigenvalues
-    rotateVecsReal(kSpace, eigenSolverTD.eigenvectors(), 0, j, j);
-    computeEvals(mat, kSpace, residua, evals, nEv);
+    // Compute Eigenvalues
+    rotateVecsComplex(kSpace, eigenSolverUH.eigenvectors(), 0, j, j);
+    computeEvals(mat, kSpace, residua, evals, j);
     for (int i = 0; i < nEv; i++) {
-      printf("EigValue[%04d]: (%+.16e, %+.16e) residual %.16e\n", i, evals[i].real(), evals[i].imag(), residua[i]);
+      int idx = j - 1 - i;
+      printf("EigValue[%04d]: ||(%+.8e, %+.8e)|| = %+.8e residual %.8e\n", i, evals[idx].real(), evals[idx].imag(), abs(evals[idx]), residua[idx]);
     }
     
     for (int i = 0; i < nEv; i++) {
-      printf("EigenComp[%04d]: %+.16e\n", i, (evals[i].real() - eigenSolver.eigenvalues()[i])/eigenSolver.eigenvalues()[i]); 
+      int idx = j - 1 - i;
+      int idx_e = Nvec - 1 - i;
+      printf("EigenComp[%04d]: (%+.8e,%+.8e)\n", i, (evals[idx].real() - eigenSolver.eigenvalues()[idx_e].real())/eigenSolver.eigenvalues()[idx_e].real(), (evals[idx].imag() - eigenSolver.eigenvalues()[idx_e].imag())/eigenSolver.eigenvalues()[idx_e].imag());
     }
-  }
+  }  
 }

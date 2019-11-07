@@ -61,14 +61,8 @@ int main(int argc, char **argv) {
   //Construct a matrix using Eigen.
   //---------------------------------------------------------------------  
   MatrixXcd ref = MatrixXcd::Random(Nvec, Nvec);
-  MatrixXcd Diag = MatrixXcd::Zero(Nvec, Nvec);
   
-  // Make ref Hermitian  
-  for(int i=0; i<Nvec; i++) {
-    Diag(i,i) = Complex(diag, 0.0);
-  }
-  
-  // Copy to mat
+  // Copy to mat, make hermitean
   Complex **mat = (Complex**)malloc(Nvec*sizeof(Complex*));
   for(int i=0; i<Nvec; i++) {
     mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));

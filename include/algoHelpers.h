@@ -5,6 +5,68 @@
 
 std::vector<double> ritz_mat;
 
+void iterRefineReal(std::vector<Complex*> &kSpace, Complex *r, double *alpha, double *beta, int j) {
+
+  /*  
+  std::vector<Complex> s(j+1);
+  // r = r - s_{i} * v_{i}
+  orthogonalise(s, r, kSpace, j);
+  */
+    
+  std::vector<Complex> s(j+1);
+  measOrthoDev(s, r, kSpace, j);
+  double err = 0.0;
+  for(int i=0; i<j+1; i++) err = std::max(err, abs(s[i].real()));
+  double cond = (DBL_EPSILON)*beta[j];
+  
+  int count = 0;
+  while (count < 5 && err > cond ) {
+    
+    // r = r - s_{i} * v_{i}
+    orthogonalise(s, r, kSpace, j);
+    alpha[j] += s[j].real();
+    beta[j-1] += s[j-1].real();    
+    count++;
+    
+    measOrthoDev(s, r, kSpace, j);
+    beta[j] = norm(r);
+    err = 0.0;
+    for(int i=0; i<j+1; i++) err = std::max(err, abs(s[i].real()));
+    cond = (DBL_EPSILON)*beta[j];
+    
+    //cout << "Orthed " << count << ": " << s[j] << " " << s[j-1] << " " << beta[j] << " " << err << " " << cond << endl;
+  }   
+}
+
+void iterRefineComplex(std::vector<Complex*> &kSpace, Complex *r,
+		       std::vector<Complex*> &upperHess, int j) {
+
+  std::vector<Complex> s(j+1);
+  measOrthoDev(s, r, kSpace, j);
+  double err = 0.0;
+  for(int i=0; i<j+1; i++) err = std::max(err, abs(s[i]));
+  double cond = (DBL_EPSILON)*upperHess[j+1][j].real();
+  
+  int count = 0;
+  while (count < 5 && err > cond ) {
+    
+    // r = r - s_{i} * v_{i}
+    orthogonalise(s, r, kSpace, j);
+    for(int i=0; i<j+1; i++) upperHess[i][j] += s[i];
+    count++;
+    
+    measOrthoDev(s, r, kSpace, j);
+
+    //for(int i=0; i<j+1; i++) err = std::max(err, abs(s[i].real()));
+    upperHess[j+1][j].real(norm(r));
+    err = 0.0;
+    for(int i=0; i<j+1; i++) err = std::max(err, abs(s[i]));
+    cond = (DBL_EPSILON) * upperHess[j+1][j].real();
+    
+    //cout << "Orthed " << count << ": " << s[j] << " " << s[j-1] << " " << err << " " << cond << endl;
+  }   
+}
+
 void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
 		 double *beta, double *alpha,
 		 Complex *r, int num_keep, int j, double a_min, double a_max) {
@@ -14,26 +76,28 @@ void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
   matVec(mat, r, kSpace[j]);
   //chebyOp(mat, r, kSpace[j], a_min, a_max);
 
+  double wnorm = norm(r);
+  
   //a_j = v_j^dag * r
-  alpha[j] = (cDotProd(kSpace[j], r)).real();    
-
+  alpha[j] = cDotProd(kSpace[j], r).real();    
+  
   //r = r - a_j * v_j
   axpy(-alpha[j], kSpace[j], r);
 
   int start = (j > num_keep && j>0) ? j - 1 : 0;
+  //cout << "Start = " << start << endl;
   for (int i = start; i < j; i++) {
-
+    
     // r = r - b_{j-1} * v_{j-1}
     axpy(-beta[i], kSpace[i], r);
   }
 
-  // Orthogonalise r against the K space
-  if (j > 0)
-    for (int k = 0; k < 2; k++) orthogonalise(r, kSpace, j);
-
+  // Orthogonalise r against the kSpace
+  if (j > 0 && norm(r) < 0.717*wnorm) iterRefineReal(kSpace, r, alpha, beta, j);
+  
   //b_j = ||r|| 
   beta[j] = normalise(r);
-
+  
   //Prepare next step.
   copy(kSpace[j+1], r);
 }
@@ -43,26 +107,32 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
 		 Complex *r, int j) {
 
   matVec(mat, r, kSpace[j]);
-
+  
+  double wnorm = norm(r);
+  
   for (int i = 0; i < j+1; i++) {
     //H_{j,i}_j = v_i^dag * r
     upperHess[i][j] = cDotProd(kSpace[i], r);
+  }
+  for (int i = 0; i < j+1; i++) {
     //r = r - v_j * H_{j,i}
     caxpy(-1.0*upperHess[i][j], kSpace[i], r);
   }
   
-  if(j < (int)kSpace.size() - 1) {
-    upperHess[j+1][j].real(normalise(r));
+  upperHess[j+1][j].real(norm(r));
+  
+  if (abs(upperHess[j+1][j]) < 0.717*wnorm) {    
+    // Orthogonalise r against the K space
+    if (j > 0) {
+      iterRefineComplex(kSpace, r, upperHess, j);
+    }
   }
-    
-  // Orthogonalise r against the K space
-  //if (j > 0)
-  //for (int k = 0; k < 2; k++) orthogonalise(r, kSpace, j);
+
+  upperHess[j+1][j].real(normalise(r));
   
   //Prepare next step.
   copy(kSpace[j+1], r);
 }
-
 
 void reorder(std::vector<Complex*> &kSpace, double *alpha, int nKr, bool reverse) {
   int i = 0;
@@ -133,7 +203,6 @@ void eigensolveFromArrowMat(int num_locked, int arrow_pos, int nKr, double *alph
   }
   
   // Eigensolve the arrow matrix 
-  //Eigen::SelfAdjointEigenSolver<MatrixXd> eigenSolver;
   eigensolver.compute(A);
   
   // repopulate ritz matrix
@@ -141,9 +210,7 @@ void eigensolveFromArrowMat(int num_locked, int arrow_pos, int nKr, double *alph
     for (int j = 0; j < dim; j++) {
       //Place data in COLUMN major 
       ritz_mat[dim * i + j] = eigensolver.eigenvectors().col(i)[j];
-      //printf("%+.4e ",ritz_mat[dim * i + j]);      
     }
-    //printf("\n");
   }
   
   for (int i = 0; i < dim; i++) {
@@ -293,7 +360,7 @@ void computeKeptRitz(std::vector<Complex*> &kSpace, int nKr, int num_locked, int
       mat(i,j) = ritz_mat[j*dim + i];  
   rotateVecsReal(kSpace, mat, num_locked, iter_keep, dim); 
   
-  //Update beta and residual
+  //Update beta and residual vector
   copy(kSpace[num_locked + iter_keep], kSpace[nKr]);
   for (int i = 0; i < iter_keep; i++)
     beta[i + num_locked] = beta[nKr - 1] * mat.col(i)[nKr-num_locked-1];  

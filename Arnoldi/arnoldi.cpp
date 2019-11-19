@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
   //cout << eigenSolver.eigenvalues() << endl;
   //-----------------------------------------------------------------------
 
-  //Construct objects for Lanczos.
+  //Construct objects for Arnoldi.
   //---------------------------------------------------------------------
   //Eigenvalues and their residuals
   double *residua          = (double*)malloc(nKr*sizeof(double));
@@ -84,14 +84,9 @@ int main(int argc, char **argv) {
 
   //Ritz vectors and Krylov Space. The eigenvectors will be stored here.
   std::vector<Complex*> kSpace(nKr+1);
-  std::vector<Complex*> ritzVecs(nKr+1);
-  std::vector<bool> converged(nKr+1);
   for(int i=0; i<nKr+1; i++) {
     kSpace[i] = (Complex*)malloc(Nvec*sizeof(Complex));
-    ritzVecs[i] = (Complex*)malloc(Nvec*sizeof(Complex));
-    converged[i] = false;
     zero(kSpace[i]);
-    zero(ritzVecs[i]);
   }
 
   //Upper Hessenberg matrix

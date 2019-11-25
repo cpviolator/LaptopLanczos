@@ -1,12 +1,9 @@
 #Your path to Eigen
-EIGEN=/Users/deanhowarth/LaptopLanczos/Eigen
-INCLUDE=/Users/deanhowarth/LaptopLanczos/include
+EIGEN=../Eigen
+INCLUDE=../include
 
 #Your path to ARPACK
-#ARPACK_LIB='/Users/deanhowarth/LaptopLanczos/ARPACK/ARPACK/libarpack.a'
-#ARPACK_LIB='/Users/deanhowarth/AdS2-Lattice/arpack-ng/SRC/.libs/libarpack.a'
-ARPACK_LIB='/usr/local/Cellar/arpack/3.7.0_3/lib/libarpack.a'
-#GFORTLIBS='/usr/local/Cellar/gcc/9.2.0_1/lib/gcc/9/libgfortran.a  /usr/local/Cellar/gcc/9.2.0_1/lib/gcc/9/libquadmath.a'
+ARPACK_LIB='/scratch/CPviolator/ARPACK/libarpack.a'
 
 TARGET	 = arpack
 SOURCES  = arpack_interface.cpp
@@ -17,14 +14,14 @@ LIBS     = ${ARPACK_LIB}
 ERRS=-Wall
 
 CXX = g++
-CXXFLAGS = -O3 -g ${ERRS} -std=c++11 -I${EIGEN} -I${INCLUDE} -I/usr/local/include 
+CXXFLAGS = -O3 -g ${ERRS} -std=c++11 -I${EIGEN} -I${INCLUDE} -I/usr/include -fPIC
 
 #============================================================
 
 all: $(TARGET)
 
 arpack: ${OBJS} 
-	$(CXX) $(CXXFLAGS) -o arpack ${OBJS} ${ARPACK_LIB} 
+	$(CXX) $(CXXFLAGS) -o arpack ${OBJS} ${ARPACK_LIB} -lgfortran
 
 arpack_interface.o: arpack_interface.cpp ${INC}
 	${CXX} ${CXXFLAGS} -c arpack_interface.cpp

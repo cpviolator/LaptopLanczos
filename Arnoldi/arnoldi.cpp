@@ -10,7 +10,6 @@
 #include <cfloat>
 #include <random>
 #include <unistd.h>
-#include <omp.h>
 
 #define Nvec 64
 #include "Eigen/Eigenvalues"
@@ -29,9 +28,9 @@ bool verbose = false;
 int main(int argc, char **argv) {
 
   //Define the problem
-  if (argc < 6 || argc > 6) {
+  if (argc < 5 || argc > 5) {
     cout << "Compiled for " << Nvec << endl;
-    cout << "./arnoldi <nKr> <nEv> <check-interval> <tol> <threads>" << endl;
+    cout << "./arnoldi <nKr> <nEv> <check-interval> <tol>" << endl;
     exit(0);
   }
   
@@ -39,9 +38,6 @@ int main(int argc, char **argv) {
   int nEv = atoi(argv[2]);
   int check_interval = atoi(argv[3]);
   double tol = atof(argv[4]);
-  int threads = atoi(argv[5]);
-  omp_set_num_threads(threads);
-  Eigen::setNbThreads(threads);
 
   //Construct a matrix using Eigen.
   //---------------------------------------------------------------------  
@@ -107,13 +103,14 @@ int main(int argc, char **argv) {
   
   // Populate source with randoms.
   printf("Using random guess\n");
-  for(int i=0; i<Nvec; i++) r[i] = drand48();
+  //for(int i=0; i<Nvec; i++) r[i] = drand48();
+  for(int i=0; i<Nvec; i++) r[i] = 1.0;
 
   //Normalise initial source
-  normalise(r);
+  //normalise(r);
   
   //v_1
-  copy(kSpace[0], r);
+  //copy(kSpace[0], r);
 
   t1 = clock();
   
@@ -136,6 +133,8 @@ int main(int argc, char **argv) {
 	}
       }
 
+      //cout << upperHessEigen << endl << endl;
+      
       // Eigensolve dense UH
       eigenSolverUH.compute(upperHessEigen);      
       

@@ -2,7 +2,7 @@
 
 You'll need a copy of Eigen. To get it execute
 
-      wget http://bitbucket.org/eigen/eigen/get/3.3.5.tar.bz2
+      wget http://bitbucket.org/eigen/eigen/get/3.3.5.tar.gz
 
 Point to it in the Makefile and the lanczos.cpp file, compile with
 

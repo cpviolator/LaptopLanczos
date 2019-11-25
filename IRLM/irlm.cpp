@@ -28,7 +28,7 @@ bool verbose = false;
 
 int main(int argc, char **argv) {
 
-  cout << std::setprecision(4);
+  cout << std::setprecision(16);
   cout << scientific;  
   //Define the problem
   if (argc < 10 || argc > 10) {
@@ -134,40 +134,37 @@ int main(int argc, char **argv) {
 
   t1 = clock();
   double epsilon = DBL_EPSILON;
-  double epsilon23 = pow(epsilon,2.0/3/0);
-  double mat_norm = 0.0;
+  double epsilon23 = pow(epsilon,2.0/3.0);
   bool converged = false;
   int restart_iter = 0;
-  int iter_converged = 0;
-  int iter_locked = 0;
-  int iter_keep = 0;
   int num_converged = 0;
-  int num_locked = 0;
-  int num_keep = 0;
   int step = 0;
   int step_start = 0;
   int ops = 0;
+
+  int np = 0;
   
-  // Populate source with randoms.
-  printf("Using random guess\n");
+  //%---------------------------------------------%
+  //| Get a possibly random starting vector and   |
+  //| force it into the range of the operator OP. |
+  //%---------------------------------------------%
+  
+  // Populate source
   //for(int i=0; i<Nvec; i++) r[i] = drand48();
   for(int i=0; i<Nvec; i++) r[i] = 1.0;
-
-  //Normalise initial source
-  normalise(r);
-
-  //v_1
-  copy(kSpace[0], r);
   
   // loop over restart iterations.
   while(!converged && restart_iter < max_restarts) {
-    
+
+    np = nKr - step_start;
+      
     for(step = step_start; step < nKr; step++) {
       if(eig_type == 0) lanczosStep(mat, kSpace, beta, alpha, r, -1, step, a_min, a_max);
       else arnoldiStep(mat, kSpace, upperHess, r, step);
     }
-    ops += nKr - step_start;
-    cout << "Start extention at " << step_start << endl;
+    
+    ops += np;
+    //cout << "Start extention at " << step_start << endl;
     step_start = nEv;
 
     //Construct the Upper Hessenberg matrix H_k      
@@ -187,24 +184,48 @@ int main(int argc, char **argv) {
 	}
       }
     }
-
+    
     //cout << upperHessEigen << endl;
     
-    double beta_nKrm1;
-    if(eig_type == 0) beta_nKrm1 = beta[nKr-1];
-    else beta_nKrm1 = upperHess[nKr][nKr-1].real();
+    double beta_nKrm1 = dznrm2(Nvec, r, 1);
+    //if(eig_type == 0) beta_nKrm1 = beta[nKr-1];
+    //else beta_nKrm1 = upperHess[nKr][nKr-1].real();
     
     // Eigensolve the H_k matrix. The shifts shall be the p
     // largest eigenvalues, as those are the ones we wish to project
     // away from.
-    eigenSolverUH.compute(upperHessEigen);      
+    eigenSolverUH.compute(upperHessEigen);
+    //Complex ritz_vals[nKr];
+    // Initialise Q
+    MatrixXcd Q = MatrixXcd::Identity(nKr, nKr);
+    for(int i=0; i<nKr; i++) {
+      cout << upperHessEigen(i,i) << " ";
+      if(i<nKr-1) {
+	cout << upperHessEigen(i+1,i);	
+      }
+      cout << endl;
+    }
     
+    //zneigh(beta_nKrm1, nKr, upperHessEigen, nKr, ritz_vals, residua, Q, nKr); 
+
+    cout << "Using beta_nKrm1 = " << beta_nKrm1 << endl;    
     // Ritz estimates are updated.
     for (int i = 0; i < nKr; i++) {
-      residua[i] = abs(beta_nKrm1 * abs(eigenSolverUH.eigenvectors().col(i)[nKr-1]));
-      //printf("**** %d Ritz estimate = %+.6e ****\n", i, residua[i]);
+      residua[i] = beta_nKrm1*abs(eigenSolverUH.eigenvectors().col(i)[nKr-1]);
+      //cout << "bounds " << i << " = " << beta_nKrm1*eigenSolverUH.eigenvectors().col(i)[nKr-1] << endl;
+      //cout << "residua " << i << " = " << residua[i] << endl;
+      //cout << "Shift " << i << " = " << eigenSolverUH.eigenvalues()[i] << endl;
+      //cout << "Shift " << i << " = " << ritz_vals[i] << endl;
     }
 
+    //%---------------------------------------------------%
+    //| Select the wanted Ritz values and their bounds    |
+    //| to be used in the convergence test.               |
+    //| The wanted part of the spectrum and corresponding |
+    //| bounds are in the last NEV loc. of RITZ           |
+    //| BOUNDS respectively.                              |
+    //%---------------------------------------------------%
+    
     // shift selection zngets.f
     // Customize me!
     int shifts = nKr - step_start;
@@ -225,13 +246,23 @@ int main(int argc, char **argv) {
 		return left.second < right.second;
 	      });    
     std::reverse(ritz.begin(), ritz.begin()+shifts);
+
+    for (int i = 0; i < nKr; i++) {
+      //cout << "bounds " << i << " = " << beta_nKrm1*eigenSolverUH.eigenvectors().col(i)[nKr-1] << endl;
+      cout << "residua " << i << " = " << ritz[i].second << endl;
+      //cout << "Shift " << i << " = " << eigenSolverUH.eigenvalues()[i] << endl;
+      //cout << "Shift " << i << " = " << ritz_vals[i] << endl;
+    }
+
     
     // Convergence check
     num_converged = 0;
     for (int i = 0; i < nEv; i++) {
-      double condition = std::max(epsilon23, abs(ritz[i].first));
+      int np0 = nKr - nEv;
+      double condition = std::max(epsilon23, abs(ritz[np0 + i].first));
       if (residua[i] < tol * condition) {
-	printf("**** Converged %d resid=%+.6e condition=%.6e ****\n", i, residua[i], tol * condition);
+	printf("**** Converged %d resid=%+.6e condition=%.6e ****\n",
+	       i, ritz[np0 + i].second, tol * condition);
 	num_converged++;
       }
     }
@@ -240,23 +271,31 @@ int main(int argc, char **argv) {
       converged = true;
       break;
     }    
+
+    //%---------------------------------------------------------%
+    //| Count the number of unwanted Ritz values that have zero |
+    //| Ritz estimates. If any Ritz estimates are equal to zero |
+    //| then a leading block of H of order equal to at least    |
+    //| the number of Ritz values with zero Ritz estimates has  |
+    //| split off. None of these Ritz values may be removed by  |
+    //| shifting. Decrease NP the number of shifts to apply. If |
+    //| no shifts may be applied, then prepare to exit          |
+    //%---------------------------------------------------------%
     
-    // Adjust restart position
-    // znaup2.f line 641
     int step_start_old = step_start;
     int shifts_old = shifts;
     // do 30
     for (int i = 0; i < shifts_old; i++) {
-      if (residua[i] == 0) {
-	//step_start++;
-	//shifts--;
+      if (ritz[i].second == 0) {
+	step_start++;
+	shifts--;
       }
     }
-    step_start += std::min(num_converged, (nKr - shifts) / 2);
+    step_start += std::min(num_converged, shifts / 2);
     
     if(step_start == 1 && nKr >= 6) step_start = nKr / 2;
     else if(step_start == 1 && nKr > 3) step_start = 2;   
-    if(step_start > nKr - 1) step_start = nKr - 1;
+    //if(step_start > nKr - 1) step_start = nKr - 1;
     shifts = nKr - step_start;
     
     if (step_start_old < step_start) {
@@ -274,8 +313,7 @@ int main(int argc, char **argv) {
       std::reverse(ritz.begin(), ritz.begin()+shifts);      
     }
     
-    // Initialise Q
-    MatrixXcd Q = MatrixXcd::Identity(nKr, nKr);
+
     // znapps.f 
     for(int j=0; j<shifts; j++) {      
       //cout << "Shifting eigenvalue " << ritz.[j]first << endl;
@@ -315,7 +353,7 @@ int main(int argc, char **argv) {
     if(eig_type == 0) beta[step_start-1] = normalise(kSpace[step_start]);
     else upperHess[step_start][step_start-1].real(normalise(kSpace[step_start]));
     
-    printf("%04d converged eigenvalues at restart iter %04d\n", num_converged, restart_iter);    
+    //printf("%04d converged eigenvalues at restart iter %04d\n", num_converged, restart_iter);    
     restart_iter++;
   }
   
@@ -341,9 +379,9 @@ int main(int argc, char **argv) {
   }
 
   //cout << eigensolverRef.eigenvalues() << endl;
-    
+
   for (int i = 0; i < nEv; i++) {
-    printf("EigenComp[%04d]: (%+.8e - %+.8e)/%+.8e = %+.8e\n", i, evals[i].real(), eigensolverRef.eigenvalues()[i], eigensolverRef.eigenvalues()[i], (evals[i].real() - eigensolverRef.eigenvalues()[i])/eigensolverRef.eigenvalues()[i]);
+    printf("EigenComp[%04d]: (%+.16e - %+.16e)/%+.16e = %+.16e\n", i, evals[i].real(), eigensolverRef.eigenvalues()[i], eigensolverRef.eigenvalues()[i], (evals[i].real() - eigensolverRef.eigenvalues()[i])/eigensolverRef.eigenvalues()[i]);
   }
   
   free(evals);  

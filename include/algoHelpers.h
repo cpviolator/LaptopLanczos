@@ -38,33 +38,64 @@ void iterRefineReal(std::vector<Complex*> &kSpace, Complex *r, double *alpha, do
   }   
 }
 
-void iterRefineComplex(std::vector<Complex*> &kSpace, Complex *r,
+void iterRefineComplex(double rnorm,
+		       std::vector<Complex*> &kSpace, Complex *r,
 		       std::vector<Complex*> &upperHess, int j) {
 
   std::vector<Complex> s(j+1);
+  //%----------------------------------------------------%
+  //| Compute V_{j}^T * B * r_{j}.                       |
+  //| WORKD(IRJ:IRJ+J-1) = v(:,1:J)'*WORKD(IPJ:IPJ+N-1). |
+  //%----------------------------------------------------%  
   measOrthoDev(s, r, kSpace, j);
-  double err = 0.0;
-  for(int i=0; i<j+1; i++) err = std::max(err, abs(s[i]));
-  double cond = (DBL_EPSILON)*upperHess[j+1][j].real();
-  
+
+  //%---------------------------------------------%
+  //| Compute the correction to the residual:     |
+  //| r_{j} = r_{j} - V_{j} * WORKD(IRJ:IRJ+J-1). |
+  //| The correction to H is v(:,1:J)*H(1:J,1:J)  |
+  //| + v(:,1:J)*WORKD(IRJ:IRJ+J-1)*e'_j.         |
+  //%---------------------------------------------%
+
+  double rnorm1 = 0.0;
   int count = 0;
-  while (count < 5 && err > cond ) {
+  bool orth = false;
+  while (count < 5 && !orth ) {
+
+    //cout << "Orthed: " << count << ": ";
+    //for(int i=0; i<j+1; i++) cout << "s(" << i << ","<< j << ")=" << s[i] << endl;
     
     // r = r - s_{i} * v_{i}
-    orthogonalise(s, r, kSpace, j);
+    orthogonalise(s, kSpace[j+1], kSpace, j);
     for(int i=0; i<j+1; i++) upperHess[i][j] += s[i];
     count++;
-    
-    measOrthoDev(s, r, kSpace, j);
 
-    //for(int i=0; i<j+1; i++) err = std::max(err, abs(s[i].real()));
-    upperHess[j+1][j].real(norm(r));
-    err = 0.0;
-    for(int i=0; i<j+1; i++) err = std::max(err, abs(s[i]));
-    cond = (DBL_EPSILON) * upperHess[j+1][j].real();
-    
-    //cout << "Orthed " << count << ": " << s[j] << " " << s[j-1] << " " << err << " " << cond << endl;
-  }   
+    copy(r, kSpace[j+1]);
+    rnorm1 = dznrm2(Nvec, kSpace[j+1], 1);
+
+    if( rnorm1 > 0.717*rnorm) {
+
+      //%---------------------------------------%
+      //| No need for further refinement.       |
+      //| The cosine of the angle between the   |
+      //| corrected residual vector and the old |
+      //| residual vector is greater than 0.717 |
+      //| In other words the corrected residual |
+      //| and the old residual vector share an  |
+      //| angle of less than arcCOS(0.717)      |
+      //%---------------------------------------%
+
+      orth = true;
+      rnorm = rnorm1;
+    } else {
+      
+      //%------------------------------------------------%
+      //| Another iterative refinement step is required. |
+      //%------------------------------------------------%
+
+      rnorm = rnorm1;
+      measOrthoDev(s, r, kSpace, j);
+    }    
+  }
 }
 
 void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
@@ -102,14 +133,15 @@ void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
   copy(kSpace[j+1], r);
 }
 
+/*
 void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
-		 std::vector<Complex*> &upperHess,
-		 Complex *r, int j) {
+                 std::vector<Complex*> &upperHess,
+                 Complex *r, int j) {
 
   matVec(mat, r, kSpace[j]);
-  
+
   double wnorm = norm(r);
-  
+
   for (int i = 0; i < j+1; i++) {
     //H_{j,i}_j = v_i^dag * r
     upperHess[i][j] = cDotProd(kSpace[i], r);
@@ -118,21 +150,184 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
     //r = r - v_j * H_{j,i}
     caxpy(-1.0*upperHess[i][j], kSpace[i], r);
   }
-  
+
   upperHess[j+1][j].real(norm(r));
-  
-  if (abs(upperHess[j+1][j]) < 0.717*wnorm) {    
+
+  if (abs(upperHess[j+1][j]) < 0.717*wnorm) {
     // Orthogonalise r against the K space
     if (j > 0) {
-      iterRefineComplex(kSpace, r, upperHess, j);
+      //iterRefineComplex(wnorm, kSpace, r, upperHess, j);
     }
   }
 
   upperHess[j+1][j].real(normalise(r));
-  
+
   //Prepare next step.
   copy(kSpace[j+1], r);
 }
+*/
+
+void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
+		 std::vector<Complex*> &upperHess,
+		 Complex *r, int j) {
+
+  double unfl = DBL_MIN;
+  double ovfl = DBL_MAX;
+  double ulp = DBL_EPSILON;
+  double smlnum = unfl*( Nvec / ulp );
+  double temp1 = 0.0;
+
+  double rnorm = norm(r);
+  double betaj = rnorm;
+  copy(kSpace[j], r);
+  //normalise(kSpace[j]);
+  //cout << "unfl="<< unfl<< " ovfl="<< ovfl<< " ulp="<< ulp<< " smlnum ="<< smlnum << endl;
+  
+  //%---------------------------------------------------------%
+  //| STEP 2:  v_{j} = r_{j-1}/rnorm and p_{j} = p_{j}/rnorm  |
+  //| Note that p_{j} = B*r_{j-1}. In order to avoid overflow |
+  //| when reciprocating a small RNORM, test against lower    |
+  //| machine bound.                                          |
+  //%---------------------------------------------------------%  
+  // DMH: r{j-1} is already normalised and copied into v_{j} (kSpace[j])
+  //      For the moment, B = I and so p_{j} = r_{j}.
+  
+  if(betaj >= unfl) {
+    temp1 = 1.0/rnorm;
+    zdscal(Nvec, temp1, kSpace[j], 1);    
+    zdscal(Nvec, temp1, r, 1);    
+  } else {
+
+    //%-----------------------------------------%
+    //| To scale both v_{j} and p_{j} carefully |
+    //| use LAPACK routine zlascl               |
+    //%-----------------------------------------%
+    
+    zlascl(rnorm, 1.0, kSpace[j]);
+    zlascl(rnorm, 1.0, r);
+  }
+  //%------------------------------------------------------%
+  //| STEP 3:  r_{j} = OP*v_{j}; Note that p_{j} = B*v_{j} |
+  //| Note that this is not quite yet r_{j}. See STEP 4    |
+  //%------------------------------------------------------%
+  
+  //cout << "Apply Mat Vec input" << endl;
+  //for(int i=0; i<10; i++) cout << kSpace[j][i] << endl;
+  matVec(mat, r, kSpace[j]);
+  //cout << "Apply Mat Vec output" << endl;
+  //for(int i=0; i<10; i++) cout << r[i] << endl;
+
+  //%------------------------------------------%
+  //| Put another copy of OP*v_{j} into RESID. |
+  //%------------------------------------------%
+  // DMH: use kSpace[j+1] as space for RESID
+
+  copy(kSpace[j+1], r);
+
+  //%---------------------------------------%
+  //| STEP 4:  Finish extending the Arnoldi |
+  //|          factorization to length j.   |
+  //%---------------------------------------%
+
+  copy(r, kSpace[j+1]);
+  
+  double wnorm = dznrm2(Nvec, kSpace[j+1], 1);
+  
+  //%-----------------------------------------%
+  //| Compute the j-th residual corresponding |
+  //| to the j step factorization.            |
+  //| Use Classical Gram Schmidt and compute: |
+  //| w_{j} <-  V_{j}^T * B * OP * v_{j}      |
+  //| r_{j} <-  OP*v_{j} - V_{j} * w_{j}      |
+  //%-----------------------------------------%
+
+  //%------------------------------------------%
+  //| Compute the j Fourier coefficients w_{j} |
+  //| WORKD(IPJ:IPJ+N-1) contains B*OP*v_{j}.  |
+  //%------------------------------------------%  
+  for (int i = 0; i < j+1; i++) {
+    //H_{i,j} = v_i^dag * r
+    upperHess[i][j] = cDotProd(kSpace[i], kSpace[j+1]);
+    //cout << "h("<<i<<","<<j<<")="<<upperHess[i][j]<<endl;
+  }
+
+  //%--------------------------------------%
+  //| Orthogonalize r_{j} against V_{j}.   |
+  //| RESID contains OP*v_{j}. See STEP 3. | 
+  //%--------------------------------------%
+  for (int i = 0; i < j+1; i++) {
+    //r = r - v_j * H_{j,i}
+    caxpy(-1.0*upperHess[i][j], kSpace[i], kSpace[j+1]);
+  }
+  
+  if(j>0) {
+    upperHess[j][j-1].real(betaj);
+    upperHess[j][j-1].imag(0.0);
+  }
+    
+  copy(r, kSpace[j+1]);
+
+  //%------------------------------%
+  //| Compute the B-norm of r_{j}. |
+  //%------------------------------%
+
+  rnorm = dznrm2(Nvec, kSpace[j+1], 1);
+
+  //cout << "After dznrm2 " << j << ": resid: " << endl;
+  //for(int i=0; i<10; i++) cout << kSpace[j+1][i] << endl;
+  
+  cout << "rnorm " << j << " = " << rnorm << endl;
+  cout << "wnorm " << j << " = " << wnorm << endl;
+  
+  //%-----------------------------------------------------------%
+  //| STEP 5: Re-orthogonalization / Iterative refinement phase |
+  //| Maximum NITER_ITREF tries.                                |
+  //|                                                           |
+  //|          s      = V_{j}^T * B * r_{j}                     |
+  //|          r_{j}  = r_{j} - V_{j}*s                         |
+  //|          alphaj = alphaj + s_{j}                          |
+  //|                                                           |
+  //| The stopping criteria used for iterative refinement is    |
+  //| discussed in Parlett's book SEP, page 107 and in Gragg &  |
+  //| Reichel ACM TOMS paper; Algorithm 686, Dec. 1990.         |
+  //| Determine if we need to correct the residual. The goal is |
+  //| to enforce ||v(:,1:j)^T * r_{j}|| .le. eps * || r_{j} ||  |
+  //| The following test determines whether the sine of the     |
+  //| angle between  OP*x and the computed residual is less     |
+  //| than or equal to 0.717.                                   |
+  //%-----------------------------------------------------------%
+    
+    
+  if (rnorm < 0.717*wnorm) {
+    iterRefineComplex(rnorm, kSpace, r, upperHess, j);
+  }
+
+  //%----------------------------------------------%
+  //| Branch here directly if iterative refinement |
+  //| wasn't necessary or after at most DMH: 5     |
+  //| steps of iterative refinement.               |
+  //%----------------------------------------------%
+  /*
+  if (j == (int)kSpace.size()-2) { 
+    for(int i = 0; i < j; i++) {
+
+      //%--------------------------------------------%
+      //| Check for splitting and deflation.         |
+      //| Use a standard test as in the QR algorithm |
+      //| REFERENCE: LAPACK subroutine zlahqr        |
+      //%--------------------------------------------%
+
+      double tst1 = abs( upperHess[i][i] ) + abs( upperHess[i+1][i+1] );
+      if( tst1 == 0.0 ) {
+	tst1 = zlanhs( '1', k+np, h, ldh, workd(n+1) )
+            if( dlapy2(dble(h(i+1,i)),dimag(h(i+1,i))) .le. 
+     &           max( ulp*tst1, smlnum ) ) 
+     &           h(i+1,i) = zero
+ 110     continue
+  */
+  
+}
+
 
 void reorder(std::vector<Complex*> &kSpace, double *alpha, int nKr, bool reverse) {
   int i = 0;

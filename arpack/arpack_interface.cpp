@@ -156,13 +156,13 @@ void arpackErrorHelpSEUPD(int *iparam_) {
 
 int main(int argc, char **argv) {
 
-  cout << std::setprecision(3);
+  cout << std::setprecision(16);
   cout << scientific;  
   //Define the problem
   if (argc < 6 || argc > 6) {
     cout << "Built for matrix size " << Nvec << endl;
     cout << "./arpack <nKr> <nEv> <max-restarts> <diag> <tol>" << endl;
-    cout << "./arpack 60 20 9 100 1e-330" << endl;
+    cout << "./arpack 60 20 200 100 1e-12" << endl;
     exit(0);
   }
   
@@ -187,6 +187,7 @@ int main(int argc, char **argv) {
       mat[j][i] = ref(j,i);
     }
   }
+  
   /*
   MatrixXcd ref = MatrixXcd::Zero(Nvec, Nvec);
   for(int i=0; i<Nvec; i++) 
@@ -245,12 +246,14 @@ int main(int argc, char **argv) {
   
   Complex *evecs = (Complex *) malloc(nkv_*n_*sizeof(Complex));
   Complex *evals = (Complex *) malloc(nkv_   *sizeof(Complex));
+
+  Complex one(1.0,0.0);
   
   for(int n=0; n<nkv_; n++) {
     evals[n] = 0;
     for(int i=0; i<n_; i++) {
       evecs[n*n_ + i] = 0;
-      if(n==0) evecs[n*n_ + i] = 1.0;
+      if(n==0) resid_[i] = one;
     }
   }
   
@@ -275,7 +278,7 @@ int main(int argc, char **argv) {
 
   //Assign values to ARPACK params 
   ido_        = 0;
-  info_       = 0;
+  info_       = 1;
   iparam_[0]  = 1;
   iparam_[2]  = max_iter;
   iparam_[3]  = 1;
@@ -330,8 +333,12 @@ int main(int argc, char **argv) {
 	psi1_cpy[i] = *(psi1 + i);
       }
 
+      //cout << "Apply Mat Vec input" << endl;
+      //for(int xx=0; xx<10; xx++) cout << psi1_cpy[xx] << endl;
       matVec(mat, psi2_cpy, psi1_cpy);
-      
+      //cout << "Apply Mat Vec output" << endl;
+      //for(int xx=0; xx<10; xx++) cout << psi2_cpy[xx] << endl;
+      //cout << endl;
       //Copy to Arpack workspace
       for(int i=0; i<n_; i++) {
 	*(psi2 + i) = psi2_cpy[i];
@@ -386,7 +393,7 @@ int main(int argc, char **argv) {
   
   //Print Evalues  
   for(int i=0; i<nev_ ;i++){
-    printf("%04d (%+.16e,%+.16e) diff = (%+.16e,%+.16e)\n", i,
+    printf("EigenComp[%04d]: (%+.16e,%+.16e) diff = (%+.16e,%+.16e)\n", i,
 	   evals_[i].real(), evals[i].imag(),
 	   ((evals_[i] - eigensolverRef.eigenvalues()[i])/eigensolverRef.eigenvalues()[i]).real(),
 	   ((evals_[i] - eigensolverRef.eigenvalues()[i])/eigensolverRef.eigenvalues()[i]).imag()
@@ -394,10 +401,10 @@ int main(int argc, char **argv) {
   }
   
   t1 += clock();
-  printf("\n*************************************************\n");
-  printf("%d Eigenvalues of hamiltonian computed in: %f sec\n", nev_, t1/(CLOCKS_PER_SEC));
-  printf("Total time spent in ARPACK: %f sec\n", (time+t1)/(CLOCKS_PER_SEC));
-  printf("*************************************************\n");
+  //printf("\n*************************************************\n");
+  //printf("%d Eigenvalues of hamiltonian computed in: %f sec\n", nev_, t1/(CLOCKS_PER_SEC));
+  //printf("Total time spent in ARPACK: %f sec\n", (time+t1)/(CLOCKS_PER_SEC));
+  //printf("*************************************************\n");
   
   // cleanup 
   free(ipntr_);

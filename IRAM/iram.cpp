@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <quadmath.h>
 
-#define Nvec 256
+#define Nvec 128
 #include "Eigen/Eigenvalues"
 using namespace std;
 using Eigen::MatrixXcd;
@@ -32,10 +32,10 @@ int main(int argc, char **argv) {
   cout << std::setprecision(16);
   cout << scientific;  
   //Define the problem
-  if (argc < 10 || argc > 10) {
+  if (argc < 8 || argc > 8) {
     cout << "Built for matrix size " << Nvec << endl;
-    cout << "./iram <nKr> <nEv> <max-restarts> <diag> <tol> <amin> <amax> <spectrum> <hermitian>" << endl;
-    cout << "./iram 24 12 20 50 1e-330 1 1 1 1 " << endl;
+    cout << "./iram <nKr> <nEv> <max-restarts> <diag> <tol> <spectrum> <hermitian>" << endl;
+    cout << "./iram 24 12 20 50 1e-330 1 1 " << endl;
     exit(0);
   }
   
@@ -44,10 +44,8 @@ int main(int argc, char **argv) {
   int max_restarts = atoi(argv[3]);
   double diag = atof(argv[4]);
   double tol = atof(argv[5]);
-  double a_min = atof(argv[6]);
-  double a_max = atof(argv[7]);
-  int spectrum = atoi(argv[8]);
-  bool hermitian = atoi(argv[9]) == 1 ? true : false;
+  int spectrum = atoi(argv[6]);
+  bool hermitian = atoi(argv[7]) == 1 ? true : false;
   
   Complex cZero(0.0,0.0);
   
@@ -114,14 +112,7 @@ int main(int argc, char **argv) {
     kSpace[i] = (Complex*)malloc(Nvec*sizeof(Complex));
     zero(kSpace[i]);
   }
-  
-  //Upper Hessenberg matrix
-  std::vector<Complex*> upperHess(nKr+1);
-  for(int i=0; i<nKr+1; i++) {
-    upperHess[i] = (Complex*)malloc((nKr+1)*sizeof(Complex));
-    for(int j=0; j<nKr+1; j++) upperHess[i][j] = 0.0;
-  }
-  
+    
   //Residual vector. Also used as a temp vector
   Complex *r = (Complex*)malloc(Nvec*sizeof(Complex));
   
@@ -138,14 +129,13 @@ int main(int argc, char **argv) {
   int ops = 0;
 
   int np = 0;
-  int np0 = 0;
   
   //%---------------------------------------------%
   //| Get a possibly random starting vector and   |
   //| force it into the range of the operator OP. |
   //%---------------------------------------------%
 
-  MatrixXcd upperHessEigen = MatrixXcd::Zero(nKr, nKr);
+  MatrixXcd upperHess = MatrixXcd::Zero(nKr, nKr);
   
   // Populate source
   //for(int i=0; i<Nvec; i++) r[i] = drand48();
@@ -155,43 +145,16 @@ int main(int argc, char **argv) {
   while(!converged && restart_iter < max_restarts) {
 
     np = nKr - step_start;
-      
+    
     for(step = step_start; step < nKr; step++) arnoldiStep(mat, kSpace, upperHess, r, step);
     
     ops += np;
-    step_start = nEv;
-    upperHessEigen.Zero(nKr,nKr);
-    //Construct the Upper Hessenberg matrix H_k      
-    for(int i=0; i<nKr; i++) {
-      for(int j=0; j<nKr; j++) {	
-	upperHessEigen(i,j) = upperHess[i][j];
-      }
-    }    
-    
+    step_start = nEv;    
     double beta_nKrm1 = dznrm2(Nvec, kSpace[nKr], 1);
     
-    // Eigensolve the H_k matrix. The shifts shall be the p
-    // largest eigenvalues, as those are the ones we wish to project
-    // away from.
-    //eigenSolverUH.compute(upperHessEigen);
-    schurUH.compute(upperHessEigen);
-    for (int i = 0; i < nKr; i++) {
-      //cout << "schur: " << eigenSolverUH.eigenvalues()[i] << " " << schurUH.matrixT()(i,i) << endl;
-      //cout << "lelem: " << eigenSolverUH.eigenvectors().col(i)[nKr-1] << " " << schurUH.matrixU()(nKr-1,i) << endl;
-    }
+    // Schur Decompose the upper Hessenberg matrix.
+    schurUH.compute(upperHess);
     
-    
-    // Initialise Q
-    MatrixXcd Q = MatrixXcd::Identity(nKr, nKr);
-    for(int i=0; i<nKr; i++) {
-      cout << upperHessEigen(i,i) << " ";
-      if(i<nKr-1) {
-	cout << upperHessEigen(i+1,i);	
-      }
-      cout << endl;
-    }
-    
-    cout << "Using beta_nKrm1 = " << beta_nKrm1 << endl;    
     // Ritz estimates are updated.
     for (int i = 0; i < nKr; i++) {
       bounds[i] = beta_nKrm1*schurUH.matrixU()(nKr-1,i);
@@ -223,10 +186,6 @@ int main(int argc, char **argv) {
     // Sort these so that the largest Ritz errors are first.
     zsortc(1, true, shifts, bounds, ritz_vals);
     
-    for (int i = 0; i < nKr; i++) {
-      cout << "residua " << i << " = " << bounds[i] << endl;
-    }
-
     //%------------------------------------------------------------%
     //| Convergence test: currently we use the following criteria. |
     //| The relative accuracy of a Ritz value is considered        |
@@ -287,42 +246,26 @@ int main(int argc, char **argv) {
     }
     
 
-    // znapps.f 
+    // znapps.f
+    // Initialise Q
+    MatrixXcd Q = MatrixXcd::Identity(nKr, nKr);    
     for(int j=0; j<shifts; j++) {      
-      givensQRUpperHess(upperHessEigen, Q, nKr, shifts, j, step_start, ritz_vals[j], restart_iter);
+      givensQRUpperHess(upperHess, Q, nKr, shifts, j, step_start, ritz_vals[j], restart_iter);
     }
     
-    if(upperHessEigen(step_start,step_start-1).real() > 0) {
-      cout << "ZNAPPS DBL HIT" << endl;
+    if(upperHess(step_start,step_start-1).real() > 0) {
       rotateVecsComplex(kSpace, Q, 0, step_start+1, nKr);
     } else { 
       rotateVecsComplex(kSpace, Q, 0, step_start, nKr);
     }
   
     cax(Q(nKr-1,step_start-1), r);
-    if(upperHessEigen(step_start,step_start-1).real() > 0) {
-      caxpy(upperHessEigen(step_start,step_start-1), kSpace[step_start], r);
-    }
-    
-    // Update UpperHess
-    for(int i=0; i<nKr; i++) {      
-      for(int j=0; j<nKr; j++) {
-	upperHess[i][j] = upperHessEigen(i,j);
-      }
+    if(upperHess(step_start,step_start-1).real() > 0) {
+      caxpy(upperHess(step_start,step_start-1), kSpace[step_start], r);
     }
     
     restart_iter++;
   }
-  
-  for(int i=0; i<nKr; i++) {
-    cout << upperHessEigen(i,i) << " ";
-    if(i<nKr-1) {
-      cout << upperHessEigen(i+1,i);	
-    }
-    cout << endl;
-  }
-  
-  
   
   // Post computation report  
   if (!converged) {    

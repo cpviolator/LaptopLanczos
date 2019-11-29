@@ -5,25 +5,17 @@
 
 std::vector<double> ritz_mat;
 
-//Orthogonalise r against the j vectors in vectorSpace, populate with res with residua
+//Orthogonalise r against the j vectors in vectorSpace
 void measOrthoDev(std::vector<Complex> &s, Complex *r, std::vector<Complex*> vectorSpace, int j) {  
   for(int i=0; i<j+1; i++) s[i] = cDotProd(vectorSpace[i], r);
 }
 
-void matVec(Complex **mat, Complex *out, Complex *in) {
-  
+void matVec(Complex **mat, Complex *out, Complex *in) {  
   Complex temp[Nvec];
   zero(temp);
   //Loop over rows of matrix
-  //#pragma omp parallel for 
-  for(int i=0; i<Nvec; i++) {
-    temp[i] = dotProd(&mat[i][0], in);    
-  }
+  for(int i=0; i<Nvec; i++) temp[i] = dotProd(&mat[i][0], in);    
   copy(out, temp);  
-  //#pragma omp parallel for 
-  //for(int i=0; i<Nvec; i++) {
-  //out[i] = tmp[i];
-  //}
 }
 
 //Orthogonalise r against the j vectors in vectorSpace, populate with res with residua
@@ -49,12 +41,6 @@ void orthogonalise(std::vector<Complex> &s, Complex *r, std::vector<Complex*> ve
 
 void iterRefineReal(std::vector<Complex*> &kSpace, Complex *r, double *alpha, double *beta, int j) {
 
-  /*  
-  std::vector<Complex> s(j+1);
-  // r = r - s_{i} * v_{i}
-  orthogonalise(s, r, kSpace, j);
-  */
-    
   std::vector<Complex> s(j+1);
   measOrthoDev(s, r, kSpace, j);
   double err = 0.0;
@@ -76,14 +62,13 @@ void iterRefineReal(std::vector<Complex*> &kSpace, Complex *r, double *alpha, do
     for(int i=0; i<j+1; i++) err = std::max(err, abs(s[i].real()));
     cond = (DBL_EPSILON)*beta[j];
     
-    //cout << "Orthed " << count << ": " << s[j] << " " << s[j-1] << " " << beta[j] << " " << err << " " << cond << endl;
   }   
 }
 
 void iterRefineComplex(double &rnorm,
 		       std::vector<Complex*> &kSpace, Complex *r,
-		       std::vector<Complex*> &upperHess, int j) {
-
+		       Eigen::MatrixXcd &upperHess, int j) {
+  
   std::vector<Complex> s(j+1);
   //%----------------------------------------------------%
   //| Compute V_{j}^T * B * r_{j}.                       |
@@ -103,14 +88,11 @@ void iterRefineComplex(double &rnorm,
   bool orth = false;
   while (count < 5 && !orth ) {
 
-    //cout << "Orthed: " << count << ": ";
-    //for(int i=0; i<j+1; i++) cout << "s(" << i << ","<< j << ")=" << s[i] << endl;
-    
     // r = r - s_{i} * v_{i}
     orthogonalise(s, kSpace[j+1], kSpace, j);
-    for(int i=0; i<j+1; i++) upperHess[i][j] += s[i];
+    for(int i=0; i<j+1; i++) upperHess(i,j) += s[i];
     count++;
-
+    
     copy(r, kSpace[j+1]);
     rnorm1 = dznrm2(Nvec, kSpace[j+1], 1);
 
@@ -177,12 +159,12 @@ void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
   copy(kSpace[j+1], r);
 }
 
+//std::vector<Complex*> &upperHess,
 void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
-		 std::vector<Complex*> &upperHess,
+		 Eigen::MatrixXcd &upperHess,		 
 		 Complex *r, int j) {
   
   double unfl = DBL_MIN;
-  double ovfl = DBL_MAX;
   double ulp = DBL_EPSILON;
   double smlnum = unfl*( Nvec / ulp );
   double temp1 = 0.0;
@@ -214,16 +196,13 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
     zlascl(rnorm, 1.0, kSpace[j]);
     zlascl(rnorm, 1.0, r);
   }
+  
   //%------------------------------------------------------%
   //| STEP 3:  r_{j} = OP*v_{j}; Note that p_{j} = B*v_{j} |
   //| Note that this is not quite yet r_{j}. See STEP 4    |
   //%------------------------------------------------------%
   
-  //cout << "Apply Mat Vec input" << endl;
-  //for(int i=0; i<10; i++) cout << kSpace[j][i] << endl;
   matVec(mat, r, kSpace[j]);
-  //cout << "Apply Mat Vec output" << endl;
-  //for(int i=0; i<10; i++) cout << r[i] << endl;
 
   //%------------------------------------------%
   //| Put another copy of OP*v_{j} into RESID. |
@@ -237,8 +216,6 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
   //|          factorization to length j.   |
   //%---------------------------------------%
 
-  copy(r, kSpace[j+1]);
-  
   double wnorm = dznrm2(Nvec, kSpace[j+1], 1);
   
   //%-----------------------------------------%
@@ -255,8 +232,7 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
   //%------------------------------------------%  
   for (int i = 0; i < j+1; i++) {
     //H_{i,j} = v_i^dag * r
-    upperHess[i][j] = cDotProd(kSpace[i], kSpace[j+1]);
-    //cout << "h("<<i<<","<<j<<")="<<upperHess[i][j]<<endl;
+    upperHess(i,j) = cDotProd(kSpace[i], kSpace[j+1]);
   }
 
   //%--------------------------------------%
@@ -265,12 +241,12 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
   //%--------------------------------------%
   for (int i = 0; i < j+1; i++) {
     //r = r - v_j * H_{j,i}
-    caxpy(-1.0*upperHess[i][j], kSpace[i], kSpace[j+1]);
+    caxpy(-1.0*upperHess(i,j), kSpace[i], kSpace[j+1]);
   }
   
   if(j>0) {
-    upperHess[j][j-1].real(betaj);
-    upperHess[j][j-1].imag(0.0);
+    upperHess(j,j-1).real(betaj);
+    upperHess(j,j-1).imag(0.0);
   }
     
   copy(r, kSpace[j+1]);
@@ -280,12 +256,6 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
   //%------------------------------%
 
   rnorm = dznrm2(Nvec, kSpace[j+1], 1);
-
-  //cout << "After dznrm2 " << j << ": resid: " << endl;
-  //for(int i=0; i<10; i++) cout << kSpace[j+1][i] << endl;
-  
-  cout << "rnorm " << j << " = " << rnorm << endl;
-  cout << "wnorm " << j << " = " << wnorm << endl;
   
   //%-----------------------------------------------------------%
   //| STEP 5: Re-orthogonalization / Iterative refinement phase |
@@ -306,10 +276,8 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
   //%-----------------------------------------------------------%
     
     
-  if (rnorm < 0.717*wnorm) {
-    iterRefineComplex(rnorm, kSpace, r, upperHess, j);
-  }
-
+  if (rnorm < 0.717*wnorm) iterRefineComplex(rnorm, kSpace, r, upperHess, j);
+  
   //%----------------------------------------------%
   //| Branch here directly if iterative refinement |
   //| wasn't necessary or after at most DMH: 5     |
@@ -326,14 +294,14 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
       //| REFERENCE: LAPACK subroutine zlahqr        |
       //%--------------------------------------------%
 
-      double tst1 = (dlapy2(upperHess[i][i].real(),upperHess[i][i].imag()) +
-		     dlapy2(upperHess[i+1][i+1].real(),upperHess[i+1][i+1].imag()));
+      double tst1 = (dlapy2(upperHess(i,i).real(),upperHess(i,i).imag()) +
+		     dlapy2(upperHess(i+1,i+1).real(),upperHess(i+1,i+1).imag()));
       if( tst1 == 0.0 ) {
 	cout << "TST1 HIT!" << endl;
 	tst1 = zlanhs(upperHess, (int)kSpace.size()-2);
       }
-      if(dlapy2(upperHess[i+1][i].real(),upperHess[i+1][i].imag()) <= max( ulp*tst1, smlnum ) ) { 
-	upperHess[i+1][i] = 0.0;
+      if(dlapy2(upperHess(i+1,i).real(),upperHess(i+1,i).imag()) <= max( ulp*tst1, smlnum ) ) { 
+	upperHess(i+1,i) = 0.0;
       }
     }
   }
@@ -914,6 +882,8 @@ void applyShift(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q,
   //| Construct the plane rotation G to zero out the bulge |
   //%------------------------------------------------------%
 
+  bool ah_debug = false;
+  
   std::vector<double> cos(1);
   std::vector<Complex> sin(1);
   std::vector<Complex> r(1);
@@ -923,26 +893,23 @@ void applyShift(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q,
   Complex f = UH(istart,   istart) - shift;
   Complex g = UH(istart+1, istart);
 
-  //cout << " Block start at " << istart << " end at " << iend - 1 << endl;
-  
   for(int i = istart; i < iend-1; i++) {
-    
-    //cout << " Iter " << iter << " Apply shift " << i << " = " << shift << endl;
-    
-    //f.imag(0.0);
-    //g.imag(0.0);
-    cout << "f= " << f << endl;
-    cout << "g= " << g << endl;
+
+
+    if(ah_debug) {
+      cout << "f= " << f << endl;
+      cout << "g= " << g << endl;
+    }
     zlartg(f, g, cos, sin, r);
-    // Sanity check
-    //cout << " shift " << shift << " Sanity["<<i<<"] " << cos[0]*cos[0] << " + " <<  abs(sin[0])*abs(sin[0]) << " = " << cos[0]*cos[0] + pow(sin[0].real(), 2) + pow(sin[0].imag(),2) << endl;
-    cout << " shift " << shift_num << " sigma " << shift << endl;
-    cout << " istart = " << istart << " iend = " << iend << endl;
-    //r[0].imag(0.0);
-    //sin[0].imag(0.0);
-    cout << "r= " << r[0] << endl;
-    cout << "c= " << cos[0] << endl;
-    cout << "s= " << sin[0] << endl;
+    if(ah_debug) {
+      // Sanity check
+      cout << " shift " << shift << " Sanity["<<i<<"] " << cos[0]*cos[0] << " + " <<  abs(sin[0])*abs(sin[0]) << " = " << cos[0]*cos[0] + pow(sin[0].real(), 2) + pow(sin[0].imag(),2) << endl;
+      cout << " shift " << shift_num << " sigma " << shift << endl;
+      cout << " istart = " << istart << " iend = " << iend << endl;
+      cout << "r= " << r[0] << endl;
+      cout << "c= " << cos[0] << endl;
+      cout << "s= " << sin[0] << endl;
+    }
     if(i > istart) {
       UH(i,i-1) = r[0];
       UH(i+1,i-1) = cZero;	      
@@ -953,46 +920,58 @@ void applyShift(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q,
     //%---------------------------------------------%
     //do 50
     for(int j = i; j < nKr; j++) {
-      cout<<"pre  h("<<i+1<<","<<j<<")="<<UH(i+1,j)<<endl;
-      cout<<"pre  h("<<i<<","<<j<<")="<< UH(i,j)<<endl;
-      cout<<"cos=" << cos[0] << " sin = " << sin[0] <<endl;
+      if(ah_debug) {
+	cout<<"pre  h("<<i+1<<","<<j<<")="<<UH(i+1,j)<<endl;
+	cout<<"pre  h("<<i<<","<<j<<")="<< UH(i,j)<<endl;
+	cout<<"cos=" << cos[0] << " sin = " << sin[0] <<endl;
+      }
       t         =  cos[0]       * UH(i,j) + sin[0] * UH(i+1,j);
       UH(i+1,j) = -conj(sin[0]) * UH(i,j) + cos[0] * UH(i+1,j);
       UH(i,j) = t;
-      cout<<"post h("<<i+1<<","<<j<<")="<<UH(i+1,j)<<endl;
-      cout<<"post h("<<i<<","<<j<<")="<< UH(i,j)<<endl;
+      if(ah_debug) {
+	cout<<"post h("<<i+1<<","<<j<<")="<<UH(i+1,j)<<endl;
+	cout<<"post h("<<i<<","<<j<<")="<< UH(i,j)<<endl;
+      }
     }
 
     //%---------------------------------------------%
     //| Apply rotation to the right of H;  H <- H*G |
     //%---------------------------------------------%
     //do 60
-    cout << "min60 = min(" << i+1+2 << "," << iend << ") = " << std::min(i+1+2, iend) << endl;
+    if(ah_debug) cout << "min60 = min(" << i+1+2 << "," << iend << ") = " << std::min(i+1+2, iend) << endl;
     for(int j = 0; j<std::min(i+1+2, iend); j++) {
-      cout<<"pre  h("<<j<<","<<i+1<<")="<< UH(j,i+1)<<endl;
-      cout<<"pre  h("<<j<<","<<i<<")="<< UH(j,i)<<endl;
-      cout<<"cos=" << cos[0] << " sin = " << sin[0] <<endl;
+      if(ah_debug) {
+	cout<<"pre  h("<<j<<","<<i+1<<")="<< UH(j,i+1)<<endl;
+	cout<<"pre  h("<<j<<","<<i<<")="<< UH(j,i)<<endl;
+	cout<<"cos=" << cos[0] << " sin = " << sin[0] <<endl;
+      }
       t         =  cos[0] * UH(j,i) + conj(sin[0]) * UH(j,i+1);
       UH(j,i+1) = -sin[0] * UH(j,i) + cos[0]       * UH(j,i+1);
       UH(j,i) = t;
-      cout<<"post h("<<j<<","<<i+1<<")="<< UH(j,i+1)<<endl;
-      cout<<"post h("<<j<<","<<i<<")="<< UH(j,i)<<endl;
+      if(ah_debug) {
+	cout<<"post h("<<j<<","<<i+1<<")="<< UH(j,i+1)<<endl;
+	cout<<"post h("<<j<<","<<i<<")="<< UH(j,i)<<endl;
+      }
     }
 
     //%-----------------------------------------------------%
     //| Accumulate the rotation in the matrix Q;  Q <- Q*G' |
     //%-----------------------------------------------------%
     // do 70
-    cout << "min70 = " << std::min(i+1 + shift_num+1, nKr) << endl;
+    if(ah_debug) cout << "min70 = " << std::min(i+1 + shift_num+1, nKr) << endl;
     for(int j = 0; j<std::min(i+1 + shift_num+1, nKr); j++) {
-      cout<<"pre q("<<j<<","<<i+1<<")="<< Q(j,i+1)<<endl;
-      cout<<"pre q("<<j<<","<<i<<")="<< Q(j,i)<<endl;
-      cout<<"cos=" << cos[0] << " sin = " << sin[0] <<endl;
+      if(ah_debug) {
+	cout<<"pre q("<<j<<","<<i+1<<")="<< Q(j,i+1)<<endl;
+	cout<<"pre q("<<j<<","<<i<<")="<< Q(j,i)<<endl;
+	cout<<"cos=" << cos[0] << " sin = " << sin[0] <<endl;
+      }
       t        =  cos[0] * Q(j,i) + conj(sin[0]) * Q(j,i+1);
       Q(j,i+1) = -sin[0] * Q(j,i) + cos[0]       * Q(j,i+1);
       Q(j,i) = t;
-      cout<<"post q("<<j<<","<<i+1<<")="<< Q(j,i+1)<<endl;
-      cout<<"post q("<<j<<","<<i<<")="<< Q(j,i)<<endl;
+      if(ah_debug) {
+	cout<<"post q("<<j<<","<<i+1<<")="<< Q(j,i+1)<<endl;
+	cout<<"post q("<<j<<","<<i<<")="<< Q(j,i)<<endl;
+      }
     }
     
     if(i < iend-2) {
@@ -1013,7 +992,6 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
   double unfl = DBL_MIN;
   double ulp = DBL_EPSILON;
   double smlnum = unfl*(Nvec/ulp);
-  cout << "Small Num = " << smlnum << endl;
   
   //%----------------------------------------%
   //| Check for splitting and deflation. Use |
@@ -1023,10 +1001,9 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
 
   int istart = 0;
   int iend = -1;
-  
-  //cout << "shifts=" << shifts << " step_start=" << step_start << endl;
-  //cout << "Shift " << shift_num << " = " << shift << endl;
 
+  bool g_debug = false;
+  
   //znapps.f line 281
   // do 30 loop
   for(int i=istart; i<nKr-1; i++) {
@@ -1035,27 +1012,15 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
     
     if( tst1 == 0 ) {
       cout << " *** TST1 hit "<< endl; 
-      // ARPACK uses zlanhs. Finds the largest column norm
-      // tst1 = zlanhs( '1', kplusp-jj+1, h, ldh, workl )
       tst1 = zlanhs(UH, nKr - shift_num);
-      /*
-	for(int j=0; j<nKr - shift_num; j++) {
-	double sum = 0.0;
-	for(int k=0; k<std::min(nKr-shift_num,j+1); k++) sum += abs(UH(k,j));
-	tst1 = std::max(tst1,sum);
-	}
-      */
     }
 
-    //cout << "At loop " << i << " istart = " << istart << " iend = " << iend << endl;
-
-    cout << "TEST at Iter = " << iter << " loop = " << i << " shift = " << shift_num << endl;
+    if(g_debug) cout << "TEST at Iter = " << iter << " loop = " << i << " shift = " << shift_num << endl;
     cout << tst1 << " " << abs(UH(i+1,i).real()) << " " << std::max(ulp*tst1, smlnum) << endl;
     if (abs(UH(i+1,i).real()) <= std::max(ulp*tst1, smlnum)) {
-      cout << "UH split at " << i << " shift = " << shift_num << endl;
-      //cout << tst1 << " " << abs(UH(i+1,i).real()) << " " << std::max(ulp*tst1, smlnum) << endl;
+      if(g_debug) cout << "UH split at " << i << " shift = " << shift_num << endl;
       iend = i+1;
-      cout << "istart = " << istart << " iend = " << iend << endl;
+      if(g_debug) cout << "istart = " << istart << " iend = " << iend << endl;
       UH(i+1,i) = 0.0;
       if(istart == iend){
 	
@@ -1065,11 +1030,10 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
 	//| of compression since we'll discard this stuff  |
 	//%------------------------------------------------%    
 	
-	cout << " No need for single block rotation at " << i << endl;
+	if(g_debug) cout << " No need for single block rotation at " << i << endl;
       } else if (istart > step_start) {
-	cout << " block rotation beyond " << step_start << endl;
+	if(g_debug) cout << " block rotation beyond " << step_start << endl;
       } else if( istart <= step_start) {
-	//cout << "Enter Apply shift at " << i << " istart = " << istart << " iend = " << iend << endl;
 	applyShift(UH, Q, istart, iend, nKr, shift, shift_num, iter);
       }
       istart = iend + 1;
@@ -1077,18 +1041,14 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
   }
 
   iend = nKr;
-  cout << "At End istart = " << istart << " iend = " << iend << endl;
+  if(g_debug) cout << "At End istart = " << istart << " iend = " << iend << endl;
   
   // If we finish the i loop with a istart less that step_start, we must
   // do a final set of shifts
   if(istart <= step_start) {
     //perform final block compression
-    //cout << "Applying final shift " << istart << " " << nKr-2 << endl;
     applyShift(UH, Q, istart, iend, nKr, shift, shift_num, iter);
   }
-  //} else if(istart == iend-1){
-  //cout << " No need for single block rotation at " << istart << endl;
-  //}
   
   //%---------------------------------------------------%
   //| Perform a similarity transformation that makes    |
@@ -1098,16 +1058,12 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
   
   if( shift_num == shifts-1 ) {
     //do 120
-    //cout << "KEV = " << step_start << endl;
     for(int j=0; j<step_start; j++) {
       if (UH(j+1,j).real() < 0.0 || UH(j+1,j).imag() != 0.0 ) {
 	Complex t = UH(j+1,j) / dlapy2(UH(j+1,j).real(), UH(j+1,j).imag());	
 	for(int i=0; i<nKr-j; i++) UH(j+1,i) *= conj(t);
-	cout << "max1 = " << nKr-j << endl;
 	for(int i=0; i<std::min(j+1+2, nKr); i++) UH(i,j+1) *= t;
-	cout << "min2 = " << std::min(j+1+2, nKr) << endl;
 	for(int i=0; i<std::min(j+1+shifts+1,nKr); i++) Q(i,j+1) *= t;
-	cout << "min3 = " << std::min(j+1+shifts+1,nKr) << endl;
 	UH(j+1,j).imag(0.0);
       }
     }
@@ -1126,18 +1082,12 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
       
       double tst1 = abs(UH(i,i).real()) + abs(UH(i,i).imag()) + abs(UH(i+1,i+1).real()) + abs(UH(i+1,i+1).imag());
       if( tst1 == 0 ) {
-	cout << " ********* TST1 hit ********** "<< endl; 
-	// ARPACK uses zlanhs. Finds the largest column norm
-	// tst1 = zlanhs( '1', kplusp-jj+1, h, ldh, workl )
-	for(int j=0; j<step_start; j++) {
-	  double sum = 0.0;
-	  for(int k=0; k<std::min(step_start,j+1); k++) sum += abs(UH(k,j));
-	  tst1 = std::max(tst1,sum);
-	}
+	cout << " ********* TST1 hit ********** "<< endl;
+	tst1 = zlanhs(UH, step_start);
       }
       if (abs(UH(i+1,i).real()) <= std::max(ulp*tst1, smlnum)) {
 	UH(i+1,i) = 0.0;
-        cout << "Zero out UH("<<i+1<<","<<i<<") by hand"<<endl;;
+	if(g_debug) cout << "Zero out UH("<<i+1<<","<<i<<") by hand"<<endl;;
       }
     }
   }
@@ -1200,38 +1150,4 @@ void chebyOp(Complex **mat, Complex *out, Complex *in, double a, double b) {
 }
 
 #endif
-
-/*
-void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
-                 std::vector<Complex*> &upperHess,
-                 Complex *r, int j) {
-
-  matVec(mat, r, kSpace[j]);
-
-  double wnorm = norm(r);
-
-  for (int i = 0; i < j+1; i++) {
-    //H_{j,i}_j = v_i^dag * r
-    upperHess[i][j] = cDotProd(kSpace[i], r);
-  }
-  for (int i = 0; i < j+1; i++) {
-    //r = r - v_j * H_{j,i}
-    caxpy(-1.0*upperHess[i][j], kSpace[i], r);
-  }
-
-  upperHess[j+1][j].real(norm(r));
-
-  if (abs(upperHess[j+1][j]) < 0.717*wnorm) {
-    // Orthogonalise r against the K space
-    if (j > 0) {
-      //iterRefineComplex(wnorm, kSpace, r, upperHess, j);
-    }
-  }
-
-  upperHess[j+1][j].real(normalise(r));
-
-  //Prepare next step.
-  copy(kSpace[j+1], r);
-}
-*/
 

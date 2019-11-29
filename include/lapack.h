@@ -179,50 +179,35 @@ void zlartg(const Complex F, const Complex G, std::vector<double> &cos,
     r[0] = F;
     cos[0] = 1.0;
     sin[0] = cZero;
-    //cout << "path 1";
   } else if (F == cZero) {
     cos[0] = 0.0;
     sin[0] = conj(G)/abs(G);
     r[0] = abs(G);
-    //cout << "path 2";
   } else {
     double F1 = abs(F.real()) + abs(F.imag());
     double G1 = abs(G.real()) + abs(G.imag());    
     if (F1 >= G1) {
       GS = G / F1;
-      //G2 = norm(GS);//.real()*GS.real() + GS.imag()*GS.imag();
-      //G2 = norm(GS);//.real()*GS.real() + GS.imag()*GS.imag();
       G2 = pow(hypot(GS.real(), GS.imag()), 2);
-      //G2 = norm(GS);//.real()*GS.real() + GS.imag()*GS.imag();
       FS = F / F1;
-      //F2 = norm(FS);//.real()*FS.real() + FS.imag()*FS.imag();
       F2 = pow(hypot(FS.real(), FS.imag()), 2);
-      //D = sqrt(1.0 + G2/F2);
       D = hypot(1.0, abs(GS)/abs(FS));
       cos[0] = 1.0/D;
       sin[0] = conj(GS) * FS * (cos[0] / F2);
       r[0] = F*D;
-      //cout << "path 3";
     } else {
       FS = F / G1;
-      //F2 = norm(FS);//.real()*FS.real() + FS.imag()*FS.imag();
       F2 = pow(hypot(FS.real(), FS.imag()),2);
       FA = sqrt(F2);
       GS = G / G1;
-      //G2 = norm(GS);//.real()*GS.real() + GS.imag()*GS.imag();
       G2 = pow(hypot(GS.real(), GS.imag()),2);
       GA = sqrt(G2);
-      //D = sqrt(1.0 + F2/G2);
-      //D = sqrt(F2 + G2)/GA;
       D = hypot(1.0, abs(FS)/abs(GS));
       DI = 1.0/D;
-      //cout << "cos comp " << FA << " " << GA << " " << DI << endl;
       cos[0] = (FA / GA) * DI;
-      //cos[0] = (FA * DI) / GA;
       SS = (conj(GS) * FS)/(FA*GA);
       sin[0] = SS * DI;
       r[0] = G * SS * D;
-      //cout << "path 4";
     }
   }
 }
@@ -688,33 +673,4 @@ void zlahqr(bool WANTT, bool WANTZ, int N, int ILO, int IHI,
   }
 }
 
-void zneigh(double rnorm, int n, Eigen::MatrixXcd &UH, int ldh, Complex *ritz,
-	    double *bounds, Eigen::MatrixXcd &Q, int ldq) {
-  
-  //     %----------------------------------------------------------%
-  //     | 1. Compute the eigenvalues, the last components of the   |
-  //     |    corresponding Schur vectors and the full Schur form T |
-  //     |    of the current upper Hessenberg matrix H.             |
-  //     |    zlahqr returns the full Schur form of H               | 
-  //     |    in UHshur and the Schur vectors in Q.                 |
-  //     %----------------------------------------------------------%
-
-  // call zlacpy ('All', n, n, h, ldh, workl, n)
-  // Copy UH to temp space
-  MatrixXcd upperHessTemp = MatrixXcd::Zero(ldh, ldh);  
-  upperHessTemp = UH;
-
-  // call zlaset ('All', n, n, zero, one, q, ldq)
-  // Initialise Q to the identity
-  // Already done in main program.
-
-  cout << "calling zlahqr " << endl; 
-  //call zlahqr (.true., .true., n, 1, n, workl, ldh, ritz, 1, n, q, ldq, ierr)
-  zlahqr(true, true, n, 0, n, upperHessTemp, ldh, ritz, 0, n, Q, ldq);
-  cout << "called zlahqr " << endl; 
-  //zcopy...
-  
-  //call ztrevc ('Right', 'Back', select, n, workl, n, vl, n, q, ldq, n, n, workl(n*n+1), rwork, ierr)
-  
-}
 */

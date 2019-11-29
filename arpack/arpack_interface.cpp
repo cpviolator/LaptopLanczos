@@ -361,6 +361,39 @@ int main(int argc, char **argv) {
   //Subspace calulated sucessfully. Compute nEv eigenvectors and values
   printf("ARPACK Finished in %e secs: iter=%04d  info=%d  ido=%d\n", time/(CLOCKS_PER_SEC), iter_cnt, info_, ido_);
 
+  // HACK some estimates before passing to zneupd
+  // Compute eigenvalues
+
+  double *residua = (double*)malloc(nKr*sizeof(double));
+  for(int i=0; i<nKr; i++) {
+    residua[i] = 0.0;
+  }
+
+  //Ritz vectors and Krylov Space. The eigenvectors will be stored here.
+  std::vector<Complex*> kSpace(nKr+1);
+  for(int i=0; i<nKr+1; i++) {
+    kSpace[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+    zero(kSpace[i]);
+    for(int j=0; j<Nvec; j++) {
+      kSpace[i][j] = evecs[i*Nvec + j];
+    }
+  }
+  
+  
+  computeEvals(mat, kSpace, residua, evals, nEv);
+  for (int i = 0; i < nEv; i++) {
+    printf("EigValueEstimate[%04d]: (%+.16e, %+.16e) residual %.16e\n", i, evals[i].real(), evals[i].imag(), residua[i]);
+  }  
+
+  for (int i = 0; i < nEv; i++) {
+    int idx = i;
+    printf("EigenCompEstimates[%04d]: (%+.16e,%+.16e) diff = (%+.16e,%+.16e)\n", i,
+	   eigensolverRef.eigenvalues()[idx].real(), eigensolverRef.eigenvalues()[idx].imag(),
+	   ((evals[i] - eigensolverRef.eigenvalues()[idx]).real()/eigensolverRef.eigenvalues()[idx]).real(),
+	   ((evals[i] - eigensolverRef.eigenvalues()[idx]).imag()/eigensolverRef.eigenvalues()[idx]).imag()
+	   );
+  }
+  
   printf("ARPACK Computing Eigenvlaues\n");
   ARPACK(zneupd)(&rvec_, &howmany, select_, evals_, evecs_, &n_, &sigma_, w_workev_, &bmat, &n_, spectrum, &nev_, &tol_, resid_,
 		 &nkv_, evecs_, &n_, iparam_, ipntr_, w_workd_, w_workl_, &lworkl_, w_rwork_, &info_, 1, 1, 2);

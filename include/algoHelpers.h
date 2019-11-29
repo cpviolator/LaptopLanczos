@@ -285,7 +285,7 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
   //%----------------------------------------------%
   
   if (j == (int)kSpace.size()-2 ) {
-    cout << "Check for splitting and deflation" << endl;
+    //cout << "Check for splitting and deflation" << endl;
     for(int i = 0; i < (int)kSpace.size()-2; i++) {
       
       //%--------------------------------------------%
@@ -1015,8 +1015,10 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
       tst1 = zlanhs(UH, nKr - shift_num);
     }
 
-    if(g_debug) cout << "TEST at Iter = " << iter << " loop = " << i << " shift = " << shift_num << endl;
-    cout << tst1 << " " << abs(UH(i+1,i).real()) << " " << std::max(ulp*tst1, smlnum) << endl;
+    if(g_debug) {
+      cout << "TEST at Iter = " << iter << " loop = " << i << " shift = " << shift_num << endl;
+      cout << tst1 << " " << abs(UH(i+1,i).real()) << " " << std::max(ulp*tst1, smlnum) << endl;
+    }
     if (abs(UH(i+1,i).real()) <= std::max(ulp*tst1, smlnum)) {
       if(g_debug) cout << "UH split at " << i << " shift = " << shift_num << endl;
       iend = i+1;

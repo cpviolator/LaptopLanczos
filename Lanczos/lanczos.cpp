@@ -28,9 +28,9 @@ bool verbose = false;
 int main(int argc, char **argv) {
 
   //Define the problem
-  if (argc < 7 || argc > 8) {
+  if (argc < 6 || argc > 6) {
     cout << "Compiled for Nvec = " << Nvec << endl;
-    cout << "./lanczos <nKr> <nEv> <check-interval> <diag> <tol> <threads>" << endl;
+    cout << "./lanczos <nKr> <nEv> <check-interval> <diag> <tol>" << endl;
     exit(0);
   }
   
@@ -39,9 +39,6 @@ int main(int argc, char **argv) {
   int check_interval = atoi(argv[3]);
   double diag = atof(argv[4]);
   double tol = atof(argv[5]);
-  int threads = atoi(argv[6]);
-  omp_set_num_threads(threads);
-  Eigen::setNbThreads(threads);
 
   //Construct a matrix using Eigen.
   //---------------------------------------------------------------------  

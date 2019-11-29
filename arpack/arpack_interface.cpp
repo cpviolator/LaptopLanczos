@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <omp.h>
 
-#define Nvec 100
+#define Nvec 128
 #include "Eigen/Eigenvalues"
 using namespace std;
 using Eigen::MatrixXcd;
@@ -27,6 +27,7 @@ bool verbose = false;
 
 #define Complex complex<double>
 #include "linAlgHelpers.h"
+#include "lapack.h"
 #include "algoHelpers.h"
 
 //====================================================================================
@@ -390,9 +391,16 @@ int main(int argc, char **argv) {
       printf("Error: Arnoldi update, try increasing NkV.\n");
     }
   }
-  
+
   //Print Evalues  
-  for(int i=0; i<nev_ ;i++){
+  for(int i=0; i<nev_; i++){    
+    printf("EigVal[%04d]: (%+.16e, %+.16e)\n", i,
+	   evals_[i].real(), evals[i].imag());
+    
+  }
+  
+  //Compare Evalues  
+  for(int i=0; i<nev_; i++){
     printf("EigenComp[%04d]: (%+.16e,%+.16e) diff = (%+.16e,%+.16e)\n", i,
 	   evals_[i].real(), evals[i].imag(),
 	   ((evals_[i] - eigensolverRef.eigenvalues()[i])/eigensolverRef.eigenvalues()[i]).real(),

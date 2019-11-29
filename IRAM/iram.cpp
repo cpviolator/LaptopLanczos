@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <quadmath.h>
 
-#define Nvec 128
+#define Nvec 256
 #include "Eigen/Eigenvalues"
 using namespace std;
 using Eigen::MatrixXcd;
@@ -32,10 +32,10 @@ int main(int argc, char **argv) {
   cout << std::setprecision(16);
   cout << scientific;  
   //Define the problem
-  if (argc < 9 || argc > 9) {
+  if (argc < 10 || argc > 10) {
     cout << "Built for matrix size " << Nvec << endl;
-    cout << "./iram <nKr> <nEv> <max-restarts> <diag> <tol> <amin> <amax> <spectrum>" << endl;
-    cout << "./iram 24 12 20 50 1e-330 1 1 1 " << endl;
+    cout << "./iram <nKr> <nEv> <max-restarts> <diag> <tol> <amin> <amax> <spectrum> <hermitian>" << endl;
+    cout << "./iram 24 12 20 50 1e-330 1 1 1 1 " << endl;
     exit(0);
   }
   
@@ -47,6 +47,7 @@ int main(int argc, char **argv) {
   double a_min = atof(argv[6]);
   double a_max = atof(argv[7]);
   int spectrum = atoi(argv[8]);
+  bool hermitian = atoi(argv[9]) == 1 ? true : false;
   
   Complex cZero(0.0,0.0);
   
@@ -58,20 +59,29 @@ int main(int argc, char **argv) {
   //Construct a matrix using Eigen.
   //---------------------------------------------------------------------  
   MatrixXcd ref = MatrixXcd::Random(Nvec, Nvec);
-  
-  // Copy to mat, make hermitean
+
+  // Copy to mat
   Complex **mat = (Complex**)malloc(Nvec*sizeof(Complex*));
-  for(int i=0; i<Nvec; i++) {
-    mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
-    ref(i,i) = Complex(diag, 0.0);
-    mat[i][i] = ref(i,i);
-    for(int j=0; j<i; j++) {
-      mat[i][j] = ref(i,j);
-      ref(j,i) = conj(ref(i,j));
-      mat[j][i] = ref(j,i);
+  if(hermitian) { 
+    for(int i=0; i<Nvec; i++) {
+      mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+      ref(i,i) = Complex(diag, 0.0);
+      mat[i][i] = ref(i,i);
+      for(int j=0; j<i; j++) {
+	mat[i][j] = ref(i,j);
+	ref(j,i) = conj(ref(i,j));
+	mat[j][i] = ref(j,i);
+      }
+    }
+  } else {  
+    for(int i=0; i<Nvec; i++) {
+      mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+      for(int j=0; j<Nvec; j++) {
+	mat[i][j] = ref(i,j);
+      }
     }
   }
-    
+  
   //Eigensolve the matrix using Eigen, use as a reference.
   //---------------------------------------------------------------------  
   printf("START EIGEN SOLUTION\n");
@@ -338,9 +348,14 @@ int main(int argc, char **argv) {
   //cout << eigensolverRef.eigenvalues() << endl;
 
   for (int i = 0; i < nEv; i++) {
-    printf("EigenComp[%04d]: (%+.16e - %+.16e)/%+.16e = %+.16e\n", i, evals[i].real(), eigensolverRef.eigenvalues()[i].real(), eigensolverRef.eigenvalues()[i].real(), (evals[i].real() - eigensolverRef.eigenvalues()[i].real())/eigensolverRef.eigenvalues()[i].real());
+    int idx = (spectrum+1 % 2 == 1) ? Nvec-1 - i : i;
+    printf("EigenComp[%04d]: (%+.16e,%+.16e) diff = (%+.16e,%+.16e)\n", i,
+	   eigensolverRef.eigenvalues()[idx].real(), eigensolverRef.eigenvalues()[idx].imag(),
+	   ((evals[i] - eigensolverRef.eigenvalues()[idx]).real()/eigensolverRef.eigenvalues()[idx]).real(),
+	   ((evals[i] - eigensolverRef.eigenvalues()[idx]).imag()/eigensolverRef.eigenvalues()[idx]).imag()
+	   );
   }
-
+  
   free(residua);
   free(bounds);
   free(ritz_vals);

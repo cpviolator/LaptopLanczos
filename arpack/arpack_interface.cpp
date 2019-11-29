@@ -160,10 +160,10 @@ int main(int argc, char **argv) {
   cout << std::setprecision(16);
   cout << scientific;  
   //Define the problem
-  if (argc < 6 || argc > 6) {
+  if (argc < 7 || argc > 7) {
     cout << "Built for matrix size " << Nvec << endl;
-    cout << "./arpack <nKr> <nEv> <max-restarts> <diag> <tol>" << endl;
-    cout << "./arpack 60 20 200 100 1e-12" << endl;
+    cout << "./arpack <nKr> <nEv> <max-restarts> <diag> <tol> <hermitian>" << endl;
+    cout << "./arpack 60 20 200 100 1e-12 1 " << endl;
     exit(0);
   }
   
@@ -172,38 +172,32 @@ int main(int argc, char **argv) {
   int max_restarts = atoi(argv[3]);
   double diag = atof(argv[4]);
   double tol = atof(argv[5]);
-
+  bool hermitian = atoi(argv[6]) == 1 ? true : false;
+  
   //Construct a matrix using Eigen.
-  //---------------------------------------------------------------------
+  //---------------------------------------------------------------------  
   MatrixXcd ref = MatrixXcd::Random(Nvec, Nvec);  
-  // Copy to mat, make hermitean
+  // Copy to mat
   Complex **mat = (Complex**)malloc(Nvec*sizeof(Complex*));
-  for(int i=0; i<Nvec; i++) {
-    mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
-    ref(i,i) = Complex(diag, 0.0);
-    mat[i][i] = ref(i,i);
-    for(int j=0; j<i; j++) {
-      mat[i][j] = ref(i,j);
-      ref(j,i) = conj(ref(i,j));
-      mat[j][i] = ref(j,i);
+  if(hermitian) { 
+    for(int i=0; i<Nvec; i++) {
+      mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+      ref(i,i) = Complex(diag, 0.0);
+      mat[i][i] = ref(i,i);
+      for(int j=0; j<i; j++) {
+	mat[i][j] = ref(i,j);
+	ref(j,i) = conj(ref(i,j));
+	mat[j][i] = ref(j,i);
+      }
+    }
+  } else {  
+    for(int i=0; i<Nvec; i++) {
+      mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
+      for(int j=0; j<Nvec; j++) {
+	mat[i][j] = ref(i,j);
+      }
     }
   }
-  
-  /*
-  MatrixXcd ref = MatrixXcd::Zero(Nvec, Nvec);
-  for(int i=0; i<Nvec; i++) 
-    for(int j=0; j<Nvec; j++)
-      ref(i,j).real(sin((1.0*(i+1)*(j+1))/Nvec+1+i+j) + Nvec-std::max(i,j)+1);
-  
-  //Copy Eigen ref matrix.
-  Complex **mat = (Complex**)malloc(Nvec*sizeof(Complex*));
-  for(int i=0; i<Nvec; i++) {
-    mat[i] = (Complex*)malloc(Nvec*sizeof(Complex));
-    for(int j=0; j<Nvec; j++) {
-      mat[i][j] = ref(i,j);
-    }
-  }
-  */
   
   //Eigensolve the matrix using Eigen, use as a reference.
   //---------------------------------------------------------------------  

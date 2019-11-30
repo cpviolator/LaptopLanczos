@@ -3,7 +3,7 @@ EIGEN=../Eigen
 INCLUDE=../include
 
 #Your path to ARPACK
-ARPACK_LIB='/scratch/CPviolator/ARPACK/libarpack.a'
+ARPACK_LIB='/scratch/CPviolator/ARPACK_CLEAN/libarpack.a'
 
 TARGET	 = arpack
 SOURCES  = arpack_interface.cpp

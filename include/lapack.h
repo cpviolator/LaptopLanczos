@@ -298,10 +298,72 @@ void zsortc(int which, bool apply, int n, Complex *x, Complex *y) {
 }
 #endif 
 
-/*
+void zlarf(int SIDE, int M, int N, int INCV, Complex TAU, Complex *C, int LDC) {
+
+  /*
+   *  ZLARF applies a complex elementary reflector H to a complex M-by-N
+   *  matrix C, from either the left or the right. H is represented in the
+   *  form
+   *
+   *        H = I - tau * v * v'
+   *
+   *  where tau is a complex scalar and v is a complex vector.
+   *
+   *  If tau = 0, then H is taken to be the unit matrix.
+   *
+   *  To apply H' (the conjugate transpose of H), supply conjg(tau) instead
+   *  tau.
+   *
+   *  Arguments
+   *  =========
+   *
+   *  SIDE    (input) CHARACTER*1
+   *          = 'L': form  H * C
+   *          = 'R': form  C * H
+   *
+   *  M       (input) INTEGER
+   *          The number of rows of the matrix C.
+   *
+   *  N       (input) INTEGER
+   *          The number of columns of the matrix C.
+   *
+   *  V       (input) COMPLEX*16 array, dimension
+   *                     (1 + (M-1)*abs(INCV)) if SIDE = 'L'
+   *                  or (1 + (N-1)*abs(INCV)) if SIDE = 'R'
+   *          The vector v in the representation of H. V is not used if
+   *          TAU = 0.
+   *
+   *  INCV    (input) INTEGER
+   *          The increment between elements of v. INCV <> 0.
+   *
+   *  TAU     (input) COMPLEX*16
+   *          The value tau in the representation of H.
+   *
+   *  C       (input/output) COMPLEX*16 array, dimension (LDC,N)
+   *          On entry, the M-by-N matrix C.
+   *          On exit, C is overwritten by the matrix H * C if SIDE = 'L',
+   *          or C * H if SIDE = 'R'.
+   *
+   *  LDC     (input) INTEGER
+   *          The leading dimension of the array C. LDC >= max(1,M).
+   *
+   */
+
+  Complex cZero(0.0,0.0);
+  
+  if(SIDE == 0) {
+    // Form  H * C
+    if(TAU != cZero) {
+      //w := C' * v
+    }
+  }
+    
+  
+}
+
 void zlarfg(int N, Complex &ALPHA, Complex *X, int INCX, Complex &TAU) {
   
-  
+  /*  
     ZLARFG generates a complex elementary reflector H of order n, such
     that
     
@@ -344,7 +406,8 @@ void zlarfg(int N, Complex &ALPHA, Complex *X, int INCX, Complex &TAU) {
     The value tau.
     
     =====================================================================
-    
+  */
+  
   int KNT;
   double ALPHI, ALPHR, BETA, RSAFMN, SAFMIN, XNORM;
 
@@ -373,7 +436,7 @@ void zlarfg(int N, Complex &ALPHA, Complex *X, int INCX, Complex &TAU) {
       //XNORM, BETA may be inaccurate; scale X and recompute them      
       KNT = 0;
       while (abs( BETA ) < SAFMIN) {
-	KNT = KNT + 1;
+	KNT++;
 	zdscal(N-1, RSAFMN, X, INCX);
 	BETA = BETA*RSAFMN;
 	ALPHI = ALPHI*RSAFMN;
@@ -393,7 +456,7 @@ void zlarfg(int N, Complex &ALPHA, Complex *X, int INCX, Complex &TAU) {
       //If ALPHA is subnormal, it may lose relative accuracy
   
       ALPHA = BETA;
-      for(int j = 1; j < KNT; j++) {
+      for(int j = 0; j < KNT; j++) {
 	ALPHA = ALPHA*SAFMIN;
       }
     } else {
@@ -405,6 +468,89 @@ void zlarfg(int N, Complex &ALPHA, Complex *X, int INCX, Complex &TAU) {
   }
 }
 
+void zgeqr2(int M, int N, Eigen::MatrixXcd &A, Complex *tau) {
+
+  /*
+   *  ZGEQR2 computes a QR factorization of a complex m by n matrix A:
+   *  A = Q * R.
+   *
+   *  Arguments
+   *  =========
+   *
+   *  M       (input) INTEGER
+   *          The number of rows of the matrix A.  M >= 0.
+   *
+   *  N       (input) INTEGER
+   *          The number of columns of the matrix A.  N >= 0.
+   *
+   *  A       (input/output) COMPLEX*16 array, dimension (LDA,N)
+   *          On entry, the m by n matrix A.
+   *          On exit, the elements on and above the diagonal of the array
+   *          contain the min(m,n) by n upper trapezoidal matrix R (R is
+   *          upper triangular if m >= n); the elements below the diagonal,
+   *          with the array TAU, represent the unitary matrix Q as a
+   *          product of elementary reflectors (see Further Details).
+   *
+   *  LDA     (input) INTEGER
+   *          The leading dimension of the array A.  LDA >= max(1,M).
+   *
+   *  TAU     (output) COMPLEX*16 array, dimension (min(M,N))
+   *          The scalar factors of the elementary reflectors (see Further
+   *          Details).
+   *
+   *  WORK    (workspace) COMPLEX*16 array, dimension (N)
+   *
+   *  INFO    (output) INTEGER
+   *          = 0: successful exit
+   *          < 0: if INFO = -i, the i-th argument had an illegal value
+   *
+   *  Further Details
+   *  ===============
+   *
+   *  The matrix Q is represented as a product of elementary reflectors
+   *
+   *     Q = H(1) H(2) . . . H(k), where k = min(m,n).
+   *
+   *  Each H(i) has the form
+   *
+   *     H(i) = I - tau * v * v'
+   *
+   *  where tau is a complex scalar, and v is a complex vector with
+   *  v(1:i-1) = 0 and v(i) = 1; v(i+1:m) is stored on exit in A(i+1:m,i),
+   *  and tau in TAU(i).
+   *
+   *  =====================================================================
+   */
+
+  Complex cOne(1.0,0.0);
+  int K = std::min(M,N);
+
+  for( int i=0; i<K; i++) {
+
+    //Generate elementary reflector H(i) to annihilate A(i+1:m,i)
+    Complex Aii = A(i,i);
+    Complex X[M-i];
+    int start = std::min(i+1,M);
+    for(int j=0; j<M-i; j++) X[j] = A(start+j,i);
+    zlarfg(M-i, Aii, X, 1, tau[i]);
+    A(i,i) = Aii;
+    
+    if(i<N-1) {
+
+      //Apply H(i)' to A(i:m,i+1:n) from the left
+
+      Complex ALPHA = A(i,i);
+      A(i,i) = cOne;
+      //zlarf(0, M-i, N-(i+1), A(i,i), 1, conj(tau[i]), A(i,i+1), LDA);
+      A(i,i) = ALPHA;
+
+    }
+  }
+}
+
+
+
+/*
 
 //SUBROUTINE ZLAHQR( WANTT, WANTZ, N, ILO, IHI, H, LDH, W, ILOZ, IHIZ, Z, LDZ, INFO )
 //zlahqr(true, true, n, 0, n, upperHessTemp, ldh, ritz, 0, n, Q, ldq);

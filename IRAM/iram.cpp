@@ -266,6 +266,91 @@ int main(int argc, char **argv) {
     
     restart_iter++;
   }
+
+  //zneupd.f
+  //%---------------------------------------------------%
+  //| Use the temporary bounds array to store indices   |
+  //| These will be used to mark the select array later |
+  //%---------------------------------------------------%
+
+  bool reord = false;
+  
+  std::vector<bool> select(nKr);
+  std::vector<Complex> indices(nKr);
+  for(int i=0; i<nKr; i++) {
+    indices[i] = i;
+    select[i] = false;
+  }
+
+  np = nKr - nEv;
+  // Sort the eigenvalues, largest first. Unwanted are at the START of the array.
+  // Ritz estimates come along for the ride
+  zsortc(spectrum, true, nKr, ritz_vals, bounds);
+  
+  // We wish to shift the first nKr - step_start values.
+  // Sort these so that the largest Ritz errors are first.
+  //zsortc(1, true, np, bounds, ritz_vals);      
+
+  //%-----------------------------------------------------%
+  //| Record indices of the converged wanted Ritz values  |
+  //| Mark the select array for possible reordering       |
+  //%-----------------------------------------------------%
+
+  int numcnv = 0;
+  for(int i=0; i<nKr; i++) {
+
+    //11
+    double rtemp = std::max(epsilon23, dlapy2(ritz_vals[nKr-1-i].real(), ritz_vals[nKr-1-i].imag()));
+    //cout << rtemp << endl;
+    int j = indices[nKr-1 - i].real();
+    //cout << " " << dlapy2(bounds[j].real(), bounds[j].imag()) << " " << tol*rtemp << endl;
+    if(numcnv < num_converged &&
+       dlapy2(bounds[j].real(), bounds[j].imag()) <= tol*rtemp) {
+      
+      select[j] = true;
+      numcnv++;
+      if(j >= nEv) reord = true;
+    }
+  }
+
+  if(reord) cout << "Hit Reord" << endl;
+  
+  //%-----------------------------------------------------------%
+  //| Check the count (numcnv) of converged Ritz values with    |
+  //| the number (nconv) reported by dnaupd.  If these two      |
+  //| are different then there has probably been an error       |
+  //| caused by incorrect passing of the dnaupd data.           |
+  //%-----------------------------------------------------------%
+
+  if(numcnv != num_converged) {
+    cout << "Error in zneupd. numcnv = " << numcnv << " num_converged = " << num_converged << endl;
+    exit(0);
+  }
+
+  //%-------------------------------------------------------%
+  //| Call LAPACK routine zlahqr to compute the Schur form |
+  //| of the upper Hessenberg matrix returned by ZNAUPD.   |
+  //| Make a copy of the upper Hessenberg matrix.           |
+  //| Initialize the Schur vector matrix Q to the identity. |
+  //%-------------------------------------------------------%
+
+  MatrixXcd upperHessCopy = MatrixXcd::Zero(nKr, nKr);
+  upperHessCopy = upperHess;
+  
+  // Schur Decompose the upper Hessenberg matrix.
+  schurUH.compute(upperHess);
+  
+  // Ritz estimates are updated.
+  for (int i = 0; i < nKr; i++) {
+    //bounds[i] = beta_nKrm1*schurUH.matrixU()(nKr-1,i);
+    //ritz_vals[i] = schurUH.matrixT()(i,i);
+  }
+
+  MatrixXcd schurU =  schurUH.matrixU();  
+  Complex tau[num_converged];
+  zgeqr2(nKr, num_converged, schurU, tau);
+  
+  //cout << schurUH.matrixU()(0,0) << " " << schurUH.matrixU()(1,0) << " " << schurUH.matrixU()(1,0) << endl;
   
   // Post computation report  
   if (!converged) {    

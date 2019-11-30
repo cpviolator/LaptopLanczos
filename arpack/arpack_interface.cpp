@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <omp.h>
 
-#define Nvec 128
+#define Nvec 4096
 #include "Eigen/Eigenvalues"
 using namespace std;
 using Eigen::MatrixXcd;
@@ -203,9 +203,9 @@ int main(int argc, char **argv) {
   //---------------------------------------------------------------------  
   printf("START EIGEN SOLUTION\n");
   double t1 = clock();  
-  Eigen::ComplexEigenSolver<MatrixXcd> eigensolverRef(ref);
-  Eigen::ComplexEigenSolver<MatrixXcd> eigenSolverUH;
-  cout << eigensolverRef.eigenvalues() << endl;
+  //Eigen::ComplexEigenSolver<MatrixXcd> eigensolverRef(ref);
+  //Eigen::ComplexEigenSolver<MatrixXcd> eigenSolverUH;
+  //cout << eigensolverRef.eigenvalues() << endl;
   double t2e = clock() - t1;
   printf("END EIGEN SOLUTION\n");
   printf("Time to solve problem using Eigen = %e\n", t2e/CLOCKS_PER_SEC);
@@ -385,6 +385,7 @@ int main(int argc, char **argv) {
     printf("EigValueEstimate[%04d]: (%+.16e, %+.16e) residual %.16e\n", i, evals[i].real(), evals[i].imag(), residua[i]);
   }  
 
+  /*
   for (int i = 0; i < nEv; i++) {
     int idx = i;
     printf("EigenCompEstimates[%04d]: (%+.16e,%+.16e) diff = (%+.16e,%+.16e)\n", i,
@@ -393,6 +394,7 @@ int main(int argc, char **argv) {
 	   ((evals[i] - eigensolverRef.eigenvalues()[idx]).imag()/eigensolverRef.eigenvalues()[idx]).imag()
 	   );
   }
+  */
   
   printf("ARPACK Computing Eigenvlaues\n");
   ARPACK(zneupd)(&rvec_, &howmany, select_, evals_, evecs_, &n_, &sigma_, w_workev_, &bmat, &n_, spectrum, &nev_, &tol_, resid_,
@@ -425,7 +427,7 @@ int main(int argc, char **argv) {
 	   evals_[i].real(), evals[i].imag());
     
   }
-  
+  /*
   //Compare Evalues  
   for(int i=0; i<nev_; i++){
     printf("EigenComp[%04d]: (%+.16e,%+.16e) diff = (%+.16e,%+.16e)\n", i,
@@ -434,6 +436,7 @@ int main(int argc, char **argv) {
 	   ((evals_[i] - eigensolverRef.eigenvalues()[i])/eigensolverRef.eigenvalues()[i]).imag()
 	   );
   }
+  */
   
   t1 += clock();
   //printf("\n*************************************************\n");

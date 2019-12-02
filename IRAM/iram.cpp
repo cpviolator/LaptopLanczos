@@ -309,12 +309,18 @@ int main(int argc, char **argv) {
       
       select[j] = true;
       numcnv++;
-      if(j >= nEv) reord = true;
+      if(j > nEv) reord = true;
+    }
+  }
+  
+  if(reord) {
+    cout << "Hit Reord" << endl;
+    for(int i=0; i<nKr; i++) {
+      cout << select[i] << " " << (int)(indices[i].real()) <<  endl;      
     }
   }
 
-  if(reord) cout << "Hit Reord" << endl;
-  
+    
   //%-----------------------------------------------------------%
   //| Check the count (numcnv) of converged Ritz values with    |
   //| the number (nconv) reported by dnaupd.  If these two      |
@@ -346,14 +352,23 @@ int main(int argc, char **argv) {
     ritz_vals[i] = schurUH.matrixT()(i,i);
   }
 
+  //%-----------------------------------------------%
+  //| Reorder the computed upper triangular matrix. |
+  //%-----------------------------------------------%
+  /*
+    call ztrsen('None'       , 'V'          , select      ,
+    &           ncv          , workl(iuptri), ldh         ,
+    &           workl(invsub), ldq          , workl(iheig),
+    &           nconv        , conds        , sep         , 
+    &           workev       , ncv          , ierr)
+    SUBROUTINE ZTRSEN( JOB, COMPQ, SELECT, N, T, LDT, Q, LDQ, W, M, S,
+    $                  SEP, WORK,  LWORK, INFO )
+  */
+
+  
+  
   MatrixXcd schurU = schurUH.matrixU();//.block(0,0,nKr,num_converged);
   MatrixXcd schurTest = schurUH.matrixU().adjoint();
-  //schurTest *= schurUH.matrixU();
-  //schurTest -= MatrixXcd::Identity(nKr,nKr);
-  //cout << schurTest << endl;
-
-  //Insert ztrsen
-  
   Complex tau[num_converged];
   zgeqr2(nKr, num_converged, schurU, tau);
   

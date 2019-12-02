@@ -8,7 +8,7 @@ ARPACK_LIB='/scratch/CPviolator/ARPACK_CLEAN/libarpack.a'
 TARGET	 = arpack
 SOURCES  = arpack_interface.cpp
 OBJS     = arpack_interface.o 
-INC      = $(addprefix ${INCLUDE}/, linAlgHelpers.h algoHelpers.h)
+INC      = $(addprefix ${INCLUDE}/, linAlgHelpers.h algoHelpers.h arpack_interface.h)
 LIBS     = ${ARPACK_LIB}
 
 ERRS=-Wall

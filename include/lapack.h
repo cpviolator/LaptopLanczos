@@ -298,7 +298,7 @@ void zsortc(int which, bool apply, int n, Complex *x, Complex *y) {
 }
 #endif 
 
-void zlarf(int SIDE, int M, int N, int INCV, Complex TAU, Complex *C, int LDC) {
+void zlarf(int SIDE, int M, int N, Complex TAU, Complex *C, int LDC) {
 
   /*
    *  ZLARF applies a complex elementary reflector H to a complex M-by-N
@@ -357,8 +357,6 @@ void zlarf(int SIDE, int M, int N, int INCV, Complex TAU, Complex *C, int LDC) {
       //w := C' * v
     }
   }
-    
-  
 }
 
 void zlarfg(int N, Complex &ALPHA, Complex *X, int INCX, Complex &TAU) {
@@ -450,7 +448,7 @@ void zlarfg(int N, Complex &ALPHA, Complex *X, int INCX, Complex &TAU) {
       int sign2 = (ALPHR > 0) - (ALPHR < 0);
       BETA = -sign2 * dlapy3( ALPHR, ALPHI, XNORM );
       TAU.real( (BETA-ALPHR ) / BETA); TAU.imag(-ALPHI / BETA);
-      ALPHA = 1.0 / (ALPHA-BETA);
+      ALPHA = cOne / (ALPHA-BETA);
       zscal( N-1, ALPHA, X, INCX );
 
       //If ALPHA is subnormal, it may lose relative accuracy
@@ -527,23 +525,72 @@ void zgeqr2(int M, int N, Eigen::MatrixXcd &A, Complex *tau) {
 
   for( int i=0; i<K; i++) {
 
+    cout <<"I="<<i<<endl;
+          
     //Generate elementary reflector H(i) to annihilate A(i+1:m,i)
-    Complex Aii = A(i,i);
-    Complex X[M-i];
+    Complex X[M-(i+1)];
     int start = std::min(i+1,M);
-    for(int j=0; j<M-i; j++) X[j] = A(start+j,i);
-    zlarfg(M-i, Aii, X, 1, tau[i]);
-    A(i,i) = Aii;
+    for(int j=0; j<M-(i+1); j++) X[j] = A(start+j,i);
+    cout << "ZGEQR2: calling ZLARFG" << endl;
+    cout << "M-I = " << M-i << endl;
+
+    cout << "Aii pre  = " << A(i,i) << endl;
+    Complex Aiipre = A(i,i);
+    cout << "tau pre  = " << tau[i] << endl;
+    zlarfg(M-i, A(i,i), X, 1, tau[i]);
+    cout << "Aii post = " << A(i,i) << endl;
+    cout << "tau post = " << tau[i] << endl;
+    //cout << "tau - A(i,i) pre = " << tau[i] - Aiipre << endl;
+    
+    for(int l=0; l<M; l++)
+      for(int j=0; j<M; j++)
+	cout << "("<<j<<","<<l<<") = "<<A(j,l)<<endl;
+    
     
     if(i<N-1) {
-
+      
       //Apply H(i)' to A(i:m,i+1:n) from the left
-
+      //Emulate zlarf.f
+      
       Complex ALPHA = A(i,i);
       A(i,i) = cOne;
-      //zlarf(0, M-i, N-(i+1), A(i,i), 1, conj(tau[i]), A(i,i+1), LDA);
-      A(i,i) = ALPHA;
+      cout << "ZGEQR2: calling ZLARF" << endl;
+      cout << "M-I = " << M-i << endl;
+      cout << "N-(I+1) = " << N-(i+1) << endl;
+      cout << "LDA = " << M << endl;
 
+      for(int j=i; j<M; j++)
+	cout << "VEC("<<j<<","<<i<<") = "<<A(j,i)<<endl;
+      
+      // Get the A(i,i) column
+      Eigen::VectorXcd V = A.col(i).tail(M-i);
+      //cout << "1" << endl;
+      // Get the A sub block.
+      Eigen::MatrixXcd Asub = A.block(i,i+1,M-i,N-(i+1));
+      //cout << "2" << endl;
+      Eigen::MatrixXcd AsubA = Asub.adjoint();
+      
+      cout << A.rows() << " " << A.cols() << endl;
+      cout << Asub.rows() << " " << Asub.cols() << endl;
+      cout << AsubA.rows() << " " << AsubA.cols() << endl;
+      
+      //w := C' * v
+      Asub.adjointInPlace();
+      Eigen::VectorXcd W = Asub * V;
+      //cout << "3" << endl;      
+      
+      cout << W.rows() << " " << V.rows() << endl;
+      
+      //C := C - v * w'
+      for(int n=0; n<(N-(i+1)); n++) {
+	cout << -conj(tau[i]) << " " << conj(W(n)) << endl;;
+	for(int m=0; m<(M-i); m++) {
+	  cout << "gerc A("<<m+i<<","<<(i+1)+n<<") = "<<A(i+m,(i+1)+n)<<endl;
+	  cout << V(m) << " " << -conj(tau[i]) * conj(W(n)) << endl;
+	  A(i+m,(i+1)+n) += -conj(tau[i]) * V(m) * conj(W(n)); 
+	}
+      }      
+      A(i,i) = ALPHA;      
     }
   }
 }

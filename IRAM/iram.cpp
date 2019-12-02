@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
   int step = 0;
   int step_start = 0;
   int ops = 0;
-
+  double beta_nKrm1 = 0.0;
   int np = 0;
   
   //%---------------------------------------------%
@@ -150,7 +150,7 @@ int main(int argc, char **argv) {
     
     ops += np;
     step_start = nEv;    
-    double beta_nKrm1 = dznrm2(Nvec, kSpace[nKr], 1);
+    beta_nKrm1 = dznrm2(Nvec, kSpace[nKr], 1);
     
     // Schur Decompose the upper Hessenberg matrix.
     schurUH.compute(upperHess);
@@ -205,11 +205,6 @@ int main(int argc, char **argv) {
       }
     }
     
-    if(num_converged > nEv-1) {
-      converged = true;
-      break;
-    }    
-
     //%---------------------------------------------------------%
     //| Count the number of unwanted Ritz values that have zero |
     //| Ritz estimates. If any Ritz estimates are equal to zero |
@@ -229,6 +224,12 @@ int main(int argc, char **argv) {
 	shifts--;
       }
     }
+
+    if(num_converged > nEv-1 || shifts == 0) {
+      converged = true;
+      break;
+    }    
+    
     step_start += std::min(num_converged, shifts / 2);
     
     if(step_start == 1 && nKr >= 6) step_start = nKr / 2;
@@ -299,7 +300,6 @@ int main(int argc, char **argv) {
   int numcnv = 0;
   for(int i=0; i<nKr; i++) {
 
-    //11
     double rtemp = std::max(epsilon23, dlapy2(ritz_vals[nKr-1-i].real(), ritz_vals[nKr-1-i].imag()));
     //cout << rtemp << endl;
     int j = indices[nKr-1 - i].real();
@@ -333,7 +333,7 @@ int main(int argc, char **argv) {
   //| Make a copy of the upper Hessenberg matrix.           |
   //| Initialize the Schur vector matrix Q to the identity. |
   //%-------------------------------------------------------%
-
+  
   MatrixXcd upperHessCopy = MatrixXcd::Zero(nKr, nKr);
   upperHessCopy = upperHess;
   
@@ -342,15 +342,26 @@ int main(int argc, char **argv) {
   
   // Ritz estimates are updated.
   for (int i = 0; i < nKr; i++) {
-    //bounds[i] = beta_nKrm1*schurUH.matrixU()(nKr-1,i);
-    //ritz_vals[i] = schurUH.matrixT()(i,i);
+    bounds[i] = beta_nKrm1*schurUH.matrixU()(nKr-1,i);
+    ritz_vals[i] = schurUH.matrixT()(i,i);
   }
 
-  MatrixXcd schurU =  schurUH.matrixU();  
+  MatrixXcd schurU = schurUH.matrixU();//.block(0,0,nKr,num_converged);
+  MatrixXcd schurTest = schurUH.matrixU().adjoint();
+  //schurTest *= schurUH.matrixU();
+  //schurTest -= MatrixXcd::Identity(nKr,nKr);
+  //cout << schurTest << endl;
+
+  //Insert ztrsen
+  
   Complex tau[num_converged];
   zgeqr2(nKr, num_converged, schurU, tau);
   
-  //cout << schurUH.matrixU()(0,0) << " " << schurUH.matrixU()(1,0) << " " << schurUH.matrixU()(1,0) << endl;
+  Complex cOne(1.0,0.0);
+  //rotateVecsComplex(kSpace, schurU, 0, num_converged, nKr);
+  for(int r=0; r<num_converged; r++) {
+    //if(schurU(r,r).real() < 0.0) cax(-cOne, kSpace[r]);
+  }
   
   // Post computation report  
   if (!converged) {    

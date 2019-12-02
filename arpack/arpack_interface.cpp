@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <omp.h>
 
-#define Nvec 4096
+#define Nvec 128
 #include "Eigen/Eigenvalues"
 using namespace std;
 using Eigen::MatrixXcd;

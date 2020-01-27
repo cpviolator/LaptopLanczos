@@ -10,7 +10,7 @@ INC      = $(addprefix ${INCLUDE}/, linAlgHelpers.h algoHelpers.h lapack.h)
 ERRS=-Wall
 
 CXX = g++
-CXXFLAGS = -fPIC -g ${ERRS} -std=c++11 -I${EIGEN} -I${INCLUDE} -fcx-fortran-rules -ffast-math
+CXXFLAGS = -fPIC -g ${ERRS} -std=c++11 -I${EIGEN} -I${INCLUDE} 
 
 #============================================================
 

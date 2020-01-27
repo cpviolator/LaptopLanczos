@@ -5,6 +5,58 @@
 
 std::vector<double> ritz_mat;
 
+void saveTRLMSolverState(const std::vector<Complex*> vectorSpace, double *alpha, double *beta, int nKr, string name) {
+
+  fstream outPutFile;
+  outPutFile.open(name,ios::in|ios::out|ios::trunc);  
+  outPutFile.setf(ios_base::fixed,ios_base::floatfield); 
+
+  for(int n=0; n<vectorSpace.size(); n++) {
+    for(int i=0; i<Nvec; i++) {
+      outPutFile << setprecision(16) <<  setw(20) << vectorSpace[n][i].real() << endl;
+      outPutFile << setprecision(16) <<  setw(20) << vectorSpace[n][i].imag() << endl;
+    }
+  }
+
+  for(int i=0; i<nKr; i++) {
+    outPutFile << setprecision(16) <<  setw(20) << alpha[i] << endl;
+  }
+  for(int i=0; i<nKr-1; i++) {
+    outPutFile << setprecision(16) <<  setw(20) << beta[i] << endl;    
+  }
+  outPutFile.close();
+}
+
+void loadTRLMSolverState(std::vector<Complex*> vectorSpace, double *alpha, double *beta, int nKr, string name) {
+
+  fstream inPutFile;
+  inPutFile.open(name);
+  string val;
+  if(!inPutFile.is_open()) {
+    cout << "Error opening file " << name << endl;
+    exit(0);
+  }
+  
+  for(int n=0; n<vectorSpace.size(); n++) {
+    for(int i=0; i<Nvec; i++) {
+      getline(inPutFile, val);
+      vectorSpace[n][i].real(stod(val));
+      getline(inPutFile, val);
+      vectorSpace[n][i].imag(stod(val));
+    }
+  }
+
+  for(int i=0; i<nKr; i++) {
+    getline(inPutFile, val);
+    alpha[i] = stod(val);
+  }
+  for(int i=0; i<nKr-1; i++) {
+    getline(inPutFile, val);
+    beta[i] = stod(val);
+  }
+  inPutFile.close();
+}
+
 //Orthogonalise r against the j vectors in vectorSpace
 void measOrthoDev(std::vector<Complex> &s, Complex *r, std::vector<Complex*> vectorSpace, int j) {  
   for(int i=0; i<j+1; i++) s[i] = cDotProd(vectorSpace[i], r);
@@ -18,6 +70,8 @@ void matVec(Complex **mat, Complex *out, Complex *in) {
   copy(out, temp);  
 }
 
+int orthed = 0;
+
 //Orthogonalise r against the j vectors in vectorSpace, populate with res with residua
 void orthogonalise(std::vector<Complex> &s, Complex *r, std::vector<Complex*> vectorSpace, int j) {
   bool orth = false;
@@ -27,12 +81,15 @@ void orthogonalise(std::vector<Complex> &s, Complex *r, std::vector<Complex*> ve
   while (!orth && count < 100) {
     err = 0.0;
     for(int i=0; i<j+1; i++) {
-      s[i] = cDotProd(vectorSpace[i], r);
-      caxpy(-s[i], vectorSpace[i], r);
-      err += abs(s[i]);
+      if(abs(s[i].real()) > 1e-12) {
+	//s[i] = cDotProd(vectorSpace[i], r);
+	caxpy(-s[i], vectorSpace[i], r);
+	err += abs(s[i]);
+	orthed++;
+      }
     }
     if(err < tol) {
-      //cout << "Orthogonality at " << count << endl;
+      cout << "Orthogonality at " << count << " with " << orthed << " orthonormalisations " << endl;
       orth = true;
     }
     count++;
@@ -122,15 +179,73 @@ void iterRefineComplex(double &rnorm,
   }
 }
 
+void chebyOp(Complex **mat, Complex *out, Complex *in, double a, double b, int poly) {
+  
+  // Compute the polynomial accelerated operator.
+  //double a = 15;
+  //double b = 25;
+  double delta = (b - a) / 2.0;
+  double theta = (b + a) / 2.0;
+  double sigma1 = -delta / theta;
+  double sigma;
+  double d1 = sigma1 / delta;
+  double d2 = 1.0;
+  double d3;
+
+  // out = d2 * in + d1 * out
+  // C_1(x) = x
+  matVec(mat, out, in);
+  caxpby(d2, in, d1, out);
+  
+  Complex tmp1[Nvec];
+  Complex tmp2[Nvec];
+  Complex tmp3[Nvec];
+  
+  copy(tmp1, in);
+  copy(tmp2, out);
+  
+  // Using Chebyshev polynomial recursion relation,
+  // C_{m+1}(x) = 2*x*C_{m} - C_{m-1}
+  
+  double sigma_old = sigma1;
+  
+  // construct C_{m+1}(x)
+  for (int i = 2; i < poly; i++) {
+    sigma = 1.0 / (2.0 / sigma1 - sigma_old);
+      
+    d1 = 2.0 * sigma / delta;
+    d2 = -d1 * theta;
+    d3 = -sigma * sigma_old;
+
+    // mat*C_{m}(x)
+    matVec(mat, out, tmp2);
+
+    Complex d1c(d1, 0.0);
+    Complex d2c(d2, 0.0);
+    Complex d3c(d3, 0.0);
+
+    copy(tmp3, tmp2);
+    
+    caxpby(d3c, tmp1, d2c, tmp3);
+    caxpy(d1c, out, tmp3);
+    copy(tmp2, tmp3);
+    
+    sigma_old = sigma;
+  }
+  copy(out, tmp2);
+}
+
+
 void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
 		 double *beta, double *alpha,
-		 Complex *r, int num_keep, int j, double a_min, double a_max) {
+		 Complex *r, int num_keep, int j,
+		 double a_min, double a_max, int poly) {
 
   //Compute r = A * v_j - b_{j-i} * v_{j-1}      
   //r = A * v_j
-  matVec(mat, r, kSpace[j]);
-  //chebyOp(mat, r, kSpace[j], a_min, a_max);
-
+  if(a_min == 0 || a_max == 0 || poly == 0) matVec(mat, r, kSpace[j]);
+  else chebyOp(mat, r, kSpace[j], a_min, a_max, poly);
+  
   double wnorm = norm(r);
   
   //a_j = v_j^dag * r
@@ -148,10 +263,13 @@ void lanczosStep(Complex **mat, std::vector<Complex*> &kSpace,
   }
 
   // Orthogonalise r against the kSpace
-  if (j > 0 && norm(r) < 0.717*wnorm) {
-    
+  if (j > 0 && norm(r) < 0.717*wnorm) {    
     iterRefineReal(kSpace, r, alpha, beta, j);
-  }  
+    printf("iterRefineReal = YES\n");
+  } else {
+    printf("iterRefineReal = NO\n");
+  }
+  
   //b_j = ||r|| 
   beta[j] = normalise(r);
   
@@ -300,7 +418,7 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
 	cout << "TST1 HIT!" << endl;
 	tst1 = zlanhs(upperHess, (int)kSpace.size()-2);
       }
-      if(dlapy2(upperHess(i+1,i).real(),upperHess(i+1,i).imag()) <= max( ulp*tst1, smlnum ) ) { 
+      if(dlapy2(upperHess(i+1,i).real(),upperHess(i+1,i).imag()) <= max( 100*ulp*tst1, smlnum ) ) { 
 	upperHess(i+1,i) = 0.0;
       }
     }
@@ -585,7 +703,7 @@ void permuteVecs(std::vector<Complex*> &kSpace, Eigen::MatrixXd mat, int num_loc
   }
 }
 
-void computeKeptRitzLU(std::vector<Complex*> &kSpace, int nKr, int num_locked, int iter_keep, int batch, double *beta, int iter) {
+void computeKeptRitzLU(std::vector<Complex*> &kSpace, int nKr, int num_locked, int iter_keep, int batch, double *beta) {
   
   int offset = nKr + 1;
   int dim = nKr - num_locked;
@@ -1017,9 +1135,9 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
 
     if(g_debug) {
       cout << "TEST at Iter = " << iter << " loop = " << i << " shift = " << shift_num << endl;
-      cout << tst1 << " " << abs(UH(i+1,i).real()) << " " << std::max(ulp*tst1, smlnum) << endl;
+      cout << tst1 << " " << abs(UH(i+1,i).real()) << " " << std::max(100*ulp*tst1, smlnum) << endl;
     }
-    if (abs(UH(i+1,i).real()) <= std::max(ulp*tst1, smlnum)) {
+    if (abs(UH(i+1,i).real()) <= std::max(100*ulp*tst1, smlnum)) {
       if(g_debug) cout << "UH split at " << i << " shift = " << shift_num << endl;
       iend = i+1;
       if(g_debug) cout << "istart = " << istart << " iend = " << iend << endl;
@@ -1087,68 +1205,12 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
 	cout << " ********* TST1 hit ********** "<< endl;
 	tst1 = zlanhs(UH, step_start);
       }
-      if (abs(UH(i+1,i).real()) <= std::max(ulp*tst1, smlnum)) {
+      if (abs(UH(i+1,i).real()) <= std::max(100*ulp*tst1, smlnum)) {
 	UH(i+1,i) = 0.0;
 	if(g_debug) cout << "Zero out UH("<<i+1<<","<<i<<") by hand"<<endl;;
       }
     }
   }
-}
-
-void chebyOp(Complex **mat, Complex *out, Complex *in, double a, double b) {
-  
-  // Compute the polynomial accelerated operator.
-  //double a = 15;
-  //double b = 25;
-  double delta = (b - a) / 2.0;
-  double theta = (b + a) / 2.0;
-  double sigma1 = -delta / theta;
-  double sigma;
-  double d1 = sigma1 / delta;
-  double d2 = 1.0;
-  double d3;
-
-  // out = d2 * in + d1 * out
-  // C_1(x) = x
-  matVec(mat, out, in);
-  caxpby(d2, in, d1, out);
-  
-  Complex tmp1[Nvec];
-  Complex tmp2[Nvec];
-  Complex tmp3[Nvec];
-  
-  copy(tmp1, in);
-  copy(tmp2, out);
-  
-  // Using Chebyshev polynomial recursion relation,
-  // C_{m+1}(x) = 2*x*C_{m} - C_{m-1}
-  
-  double sigma_old = sigma1;
-  
-  // construct C_{m+1}(x)
-  for (int i = 2; i < 10; i++) {
-    sigma = 1.0 / (2.0 / sigma1 - sigma_old);
-      
-    d1 = 2.0 * sigma / delta;
-    d2 = -d1 * theta;
-    d3 = -sigma * sigma_old;
-
-    // mat*C_{m}(x)
-    matVec(mat, out, tmp2);
-
-    Complex d1c(d1, 0.0);
-    Complex d2c(d2, 0.0);
-    Complex d3c(d3, 0.0);
-
-    copy(tmp3, tmp2);
-    
-    caxpby(d3c, tmp1, d2c, tmp3);
-    caxpy(d1c, out, tmp3);
-    copy(tmp2, tmp3);
-    
-    sigma_old = sigma;
-  }
-  copy(out, tmp2);
 }
 
 #endif

@@ -10,7 +10,9 @@
 #include <cfloat>
 #include <random>
 #include <unistd.h>
-#include <quadmath.h>
+//#include <quadmath.h>
+
+#define Complex complex<double>
 
 #define Nvec 128
 #include "Eigen/Eigenvalues"
@@ -22,7 +24,6 @@ Eigen::SelfAdjointEigenSolver<MatrixXd> eigensolver;
 
 bool verbose = false;
 
-#define Complex complex<double>
 #include "linAlgHelpers.h"
 #include "lapack.h"
 #include "algoHelpers.h"

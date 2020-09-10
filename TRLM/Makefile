@@ -5,7 +5,7 @@ INCLUDE=../include
 TARGET	 = trlm
 SOURCES  = trlm.cpp 
 OBJS     = trlm.o 
-INC      = $(addprefix ${INCLUDE}/, linAlgHelpers.h algoHelpers.h)
+INC      = $(addprefix ${INCLUDE}/, linAlgHelpers.h algoHelpers.h lapack.h)
 
 ERRS=-Wall
 

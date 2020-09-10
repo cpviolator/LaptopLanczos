@@ -587,7 +587,7 @@ void zgeqr2(int M, int N, Eigen::MatrixXcd &A, Complex *tau) {
 	for(int m=0; m<(M-i); m++) {
 	  cout << "gerc A("<<m+i<<","<<(i+1)+n<<") = "<<A(i+m,(i+1)+n)<<endl;
 	  cout << V(m) << " " << -conj(tau[i]) * conj(W(n)) << endl;
-	  A(i+m,(i+1)+n) += -conj(tau[i]) * V(m) * conj(W(n)); 
+	  if(tau[i] != 0.0) A(i+m,(i+1)+n) += -conj(tau[i]) * V(m) * conj(W(n)); 
 	}
       }      
       A(i,i) = ALPHA;      

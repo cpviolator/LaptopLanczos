@@ -24,7 +24,7 @@ void orthogonalise(std::vector<Complex> &s, Complex *r, std::vector<Complex*> ve
   double tol = j*1e-8;
   double err = 0.0;
   int count = 0;
-  while (!orth && count < 100) {
+  while (!orth && count < 1) {
     err = 0.0;
     for(int i=0; i<j+1; i++) {
       s[i] = cDotProd(vectorSpace[i], r);
@@ -285,7 +285,7 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
   //%----------------------------------------------%
   
   if (j == (int)kSpace.size()-2 ) {
-    //cout << "Check for splitting and deflation" << endl;
+    cout << "Check for splitting and deflation" << endl;
     for(int i = 0; i < (int)kSpace.size()-2; i++) {
       
       //%--------------------------------------------%
@@ -300,7 +300,7 @@ void arnoldiStep(Complex **mat, std::vector<Complex*> &kSpace,
 	cout << "TST1 HIT!" << endl;
 	tst1 = zlanhs(upperHess, (int)kSpace.size()-2);
       }
-      if(dlapy2(upperHess(i+1,i).real(),upperHess(i+1,i).imag()) <= max( ulp*tst1, smlnum ) ) { 
+      if(dlapy2(upperHess(i+1,i).real(),upperHess(i+1,i).imag()) <= max(ulp*tst1, smlnum ) ) { 
 	upperHess(i+1,i) = 0.0;
       }
     }
@@ -882,7 +882,7 @@ void applyShift(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q,
   //| Construct the plane rotation G to zero out the bulge |
   //%------------------------------------------------------%
 
-  bool ah_debug = false;
+  bool ah_debug = true;
   
   std::vector<double> cos(1);
   std::vector<Complex> sin(1);
@@ -898,17 +898,18 @@ void applyShift(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q,
 
     if(ah_debug) {
       cout << "f= " << f << endl;
-      cout << "g= " << g << endl;
+      cout << "g= " << g << endl;      
     }
+    
     zlartg(f, g, cos, sin, r);
     if(ah_debug) {
       // Sanity check
-      cout << " shift " << shift << " Sanity["<<i<<"] " << cos[0]*cos[0] << " + " <<  abs(sin[0])*abs(sin[0]) << " = " << cos[0]*cos[0] + pow(sin[0].real(), 2) + pow(sin[0].imag(),2) << endl;
-      cout << " shift " << shift_num << " sigma " << shift << endl;
-      cout << " istart = " << istart << " iend = " << iend << endl;
+      //cout << " shift " << shift << " Sanity["<<i<<"] " << cos[0]*cos[0] << " + " <<  abs(sin[0])*abs(sin[0]) << " = " << cos[0]*cos[0] + pow(sin[0].real(), 2) + pow(sin[0].imag(),2) << endl;
       cout << "r= " << r[0] << endl;
       cout << "c= " << cos[0] << endl;
       cout << "s= " << sin[0] << endl;
+      cout << " shift " << shift_num << " sigma " << shift << endl;
+      cout << " istart = " << istart << " iend = " << iend << endl;
     }
     if(i > istart) {
       UH(i,i-1) = r[0];
@@ -949,6 +950,8 @@ void applyShift(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q,
       UH(j,i+1) = -sin[0] * UH(j,i) + cos[0]       * UH(j,i+1);
       UH(j,i) = t;
       if(ah_debug) {
+	//if(abs(UH(j,i+1)) < 1e-10) UH(j,i+1) = 0.0;
+	//if(abs(UH(j,i  )) < 1e-10) UH(j,i  ) = 0.0;
 	cout<<"post h("<<j<<","<<i+1<<")="<< UH(j,i+1)<<endl;
 	cout<<"post h("<<j<<","<<i<<")="<< UH(j,i)<<endl;
       }
@@ -1002,7 +1005,7 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
   int istart = 0;
   int iend = -1;
 
-  bool g_debug = false;
+  bool g_debug = true;
   
   //znapps.f line 281
   // do 30 loop
@@ -1025,6 +1028,7 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
       if(g_debug) cout << "istart = " << istart << " iend = " << iend << endl;
       UH(i+1,i) = 0.0;
       if(istart == iend){
+	//if(istart == i){
 	
 	//%------------------------------------------------%
 	//| No reason to apply a shift to block of order 1 |
@@ -1043,11 +1047,13 @@ void givensQRUpperHess(Eigen::MatrixXcd &UH, Eigen::MatrixXcd &Q, int nKr,
   }
 
   iend = nKr;
-  if(g_debug) cout << "At End istart = " << istart << " iend = " << iend << endl;
-  
+  if(g_debug) {
+    cout << "At End istart = " << istart << " iend = " << iend << endl;
+    if(istart == iend) cout << " No need for single block rotation at " << istart << endl;
+  }
   // If we finish the i loop with a istart less that step_start, we must
   // do a final set of shifts
-  if(istart <= step_start) {
+  if(istart <= step_start && istart != iend) {
     //perform final block compression
     applyShift(UH, Q, istart, iend, nKr, shift, shift_num, iter);
   }
